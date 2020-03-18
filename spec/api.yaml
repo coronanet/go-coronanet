@@ -1,0 +1,70 @@
+# coronanet - Coronavirus social distancing network
+# Copyright (c) 2020 Péter Szilágyi. All rights reserved.
+
+openapi: 3.0.1
+
+info:
+  title: Corona Network
+  description: |
+    Restful API for the Corona Network decentralized social network.
+
+    *The Corona Network API is not a globally accessible service, rather a server running locally on your device. The base URL is not a publicly routed domain, but rather a local one existing only on your device (and even on your device only within a process running [go-coronanet](https://github.com/coronanet/go-coronanet)).*
+  version: 0.0.2
+
+externalDocs:
+  description: Corona Network on GitHub
+  url: https://github.com/coronanet
+
+servers:
+  - url: https://corona-network/
+
+tags:
+  - name: Gateway
+    description: Manage the Corona Network P2P gateway
+paths:
+  /gateway:
+    get:
+      summary: Retrieves the current status of the Corona Network gateway
+      responses:
+        500:
+          description: Something unexpected happened, check message
+        200:
+          description: Current status of the gateway
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    description: Flag whether the gateway is actively attempting to maintain connectivity to the Corona Network. A `true` value does not mean that currently there is a live connection, only that the system will eventually establish one.
+                  connected:
+                    type: boolean
+                    description: Flag whether the gateway has an active connection to the Corona Network.
+                  bandwidth:
+                    type: object
+                    description: Network bandwidth used by the node.
+                    properties:
+                      ingress:
+                        type: number
+                        description: Number of bytes downloaded since the gateway was enabled.
+                      egress:
+                        type: number
+                        description: Number of bytes uploaded since the gateway was enabled.
+    put:
+      summary: Requests the gateway to connect to the Corona Network
+      responses:
+        500:
+          description: Something unexpected happened, check message
+        200:
+          description: Network connection will be established async and actively maintained
+          content: {}
+    delete:
+      summary: Requests the gateway to disconnect from the Corona Network
+      responses:
+        500:
+          description: Something unexpected happened, check message
+        200:
+          description: Network connection torn down
+          content: {}
+components: {}

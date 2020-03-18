@@ -5,27 +5,29 @@ package coronanet
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"sync"
 
 	"github.com/cretz/bine/tor"
 	"github.com/ipsn/go-libtor"
 )
 
-// backend represents the social network node that can connect to other nodes in
+// Backend represents the social network node that can connect to other nodes in
 // the network and exchange information.
-type backend struct {
+type Backend struct {
 	proxy *tor.Tor // Proxy through the Tor network, nil when offline
 
 	lock sync.RWMutex
 }
 
 // newBackend creates a new social network node.
-func newBackend() (*backend, error) {
-	return &backend{}, nil
+func newBackend() (*Backend, error) {
+	return &Backend{}, nil
 }
 
 // Enable creates the network proxy into the Tor network.
-func (b *backend) Enable() error {
+func (b *Backend) Enable() error {
 	// Ensure the node is not yet enabled
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -34,7 +36,13 @@ func (b *backend) Enable() error {
 		return nil
 	}
 	// Create the Tor background process and let it bootstrap itself async.
-	proxy, err := tor.Start(nil, &tor.StartConf{ProcessCreator: libtor.Creator, UseEmbeddedControlConn: true})
+	proxy, err := tor.Start(nil, &tor.StartConf{
+		ProcessCreator:         libtor.Creator,
+		UseEmbeddedControlConn: true,
+		EnableNetwork:          true,
+		DebugWriter:            os.Stderr,
+		NoHush:                 true,
+	})
 	if err != nil {
 		return err
 	}
@@ -43,7 +51,7 @@ func (b *backend) Enable() error {
 }
 
 // Disable stops and tears down the network proxy into the Tor network.
-func (b *backend) Disable() error {
+func (b *Backend) Disable() error {
 	// Ensure the node is not yet disabled
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -59,21 +67,37 @@ func (b *backend) Disable() error {
 	return nil
 }
 
-// Status returns whether the backend has networking enabled and the total down-
-// and upload traffic incurred since starting it.
-func (b *backend) Status() (bool, uint64, uint64, error) {
+// Status returns whether the backend has networking enabled, whether that works
+// or not; and the total download and upload traffic incurred since starting it.
+func (b *Backend) Status() (bool, bool, uint64, uint64, error) {
 	// If the node is offline, return all zeroes
 	b.lock.RLock()
 	defer b.lock.RUnlock()
 
 	if b.proxy == nil {
-		return false, 0, 0, nil
+		return false, false, 0, 0, nil
 	}
 	// Tor proxy online, retrieve the current stats
-	res, err := b.proxy.Control.GetInfo("traffic/read", "traffic/written")
+	res, err := b.proxy.Control.GetInfo("network-liveness", "traffic/read", "traffic/written")
 	if err != nil {
-		return true, 0, 0, err
+		return true, false, 0, 0, err
 	}
-	fmt.Println(res[0].Val, res[1].Val)
-	return true, 0, 0, nil
+	var connected bool
+	switch res[0].Val {
+	case "up":
+		connected = true
+	case "down":
+		connected = false
+	default:
+		return true, false, 0, 0, fmt.Errorf("unknown network liveness: %v", res[0].Val)
+	}
+	ingress, err := strconv.ParseUint(res[1].Val, 0, 64)
+	if err != nil {
+		return true, connected, 0, 0, err
+	}
+	egress, err := strconv.ParseUint(res[2].Val, 0, 64)
+	if err != nil {
+		return true, connected, ingress, 0, err
+	}
+	return true, connected, ingress, egress, nil
 }
