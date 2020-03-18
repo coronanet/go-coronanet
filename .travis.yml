@@ -1,0 +1,42 @@
+language: go
+go_import_path: github.com/coronanet/go-coronanet
+sudo: false
+jobs:
+  include:
+    # Builder to check if the repo can be compiled
+    - os: linux
+      dist: xenial
+      go: 1.14.x
+      script:
+        - go install -v ./...
+
+    # Builder to check if the repo can be bound
+    - os: linux
+      dist: xenial
+      addons:
+        apt:
+          packages:
+            - oracle-java8-installer
+            - oracle-java8-set-default
+      language: android
+      android:
+        components:
+          - platform-tools
+          - tools
+          - android-15
+          - android-19
+          - android-24
+      before_install:
+        - curl https://dl.google.com/go/go1.14.linux-amd64.tar.gz | tar -xz
+        - export PATH=`pwd`/go/bin:$PATH
+        - export GOBIN=`pwd`/go/bin
+        - export GOROOT=`pwd`/go
+        - export GOPATH=$HOME/go
+      script:
+        - curl https://dl.google.com/android/repository/android-ndk-r21-linux-x86_64.zip -o android-ndk-r21.zip
+        - unzip -q android-ndk-r21.zip && rm android-ndk-r21.zip
+        - mv android-ndk-r21 $ANDROID_HOME/ndk-bundle
+
+        - go get -u golang.org/x/mobile/cmd/gomobile
+        - go get -u golang.org/x/mobile/cmd/gobind
+        - gomobile bind --target android --javapkg xyz -v github.com/coronanet/go-coronanet
