@@ -36,7 +36,7 @@ To build the Android library archive (`.aar`), you need to have an Android SDK a
 Once Android is configured, you can build `go-coronanet` via:
 
 ```
-$ gomobile bind --target android --javapkg xyz -v github.com/coronanet/go-coronanet
+$ gomobile bind --target android --javapkg xyz -v -x github.com/coronanet/go-coronanet
 ```
 
 The first time you do the above, it will take a **LOT** of time. I'm not kidding, on the order of **30 minutes**, as it needs to build some humongous C dependencies for 4 different architectures (x86, x86_64, arm, arm64). The good news is that subsequent builds will be fast(er).
