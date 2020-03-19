@@ -1,4 +1,4 @@
-# coronanet - Coronavirus social distancing network
+# go-coronanet - Coronavirus social distancing network
 # Copyright (c) 2020 Péter Szilágyi. All rights reserved.
 
 openapi: 3.0.1
