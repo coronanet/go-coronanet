@@ -1,4 +1,4 @@
-// coronanet - Coronavirus social distancing network
+// go-coronanet - Coronavirus social distancing network
 // Copyright (c) 2020 Péter Szilágyi. All rights reserved.
 
 package coronanet
@@ -16,14 +16,15 @@ import (
 // Backend represents the social network node that can connect to other nodes in
 // the network and exchange information.
 type Backend struct {
-	proxy *tor.Tor // Proxy through the Tor network, nil when offline
+	datadir string   // Data directory to use for Tor and the database
+	proxy   *tor.Tor // Proxy through the Tor network, nil when offline
 
 	lock sync.RWMutex
 }
 
 // newBackend creates a new social network node.
-func newBackend() (*Backend, error) {
-	return &Backend{}, nil
+func newBackend(datadir string) (*Backend, error) {
+	return &Backend{datadir: datadir}, nil
 }
 
 // Enable creates the network proxy into the Tor network.
@@ -40,6 +41,7 @@ func (b *Backend) Enable() error {
 		ProcessCreator:         libtor.Creator,
 		UseEmbeddedControlConn: true,
 		EnableNetwork:          true,
+		DataDir:                b.datadir,
 		DebugWriter:            os.Stderr,
 		NoHush:                 true,
 	})
