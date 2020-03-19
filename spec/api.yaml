@@ -21,10 +21,13 @@ servers:
 tags:
   - name: Gateway
     description: Manage the Corona Network P2P gateway
+
 paths:
   /gateway:
     get:
       summary: Retrieves the current status of the Corona Network gateway
+      tags:
+        - Gateway
       responses:
         500:
           description: Something unexpected happened, check message
@@ -53,6 +56,8 @@ paths:
                         description: Number of bytes uploaded since the gateway was enabled.
     put:
       summary: Requests the gateway to connect to the Corona Network
+      tags:
+        - Gateway
       responses:
         500:
           description: Something unexpected happened, check message
@@ -61,10 +66,13 @@ paths:
           content: {}
     delete:
       summary: Requests the gateway to disconnect from the Corona Network
+      tags:
+        - Gateway
       responses:
         500:
           description: Something unexpected happened, check message
         200:
           description: Network connection torn down
           content: {}
+
 components: {}
