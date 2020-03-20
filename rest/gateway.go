@@ -1,7 +1,7 @@
 // go-coronanet - Coronavirus social distancing network
 // Copyright (c) 2020 Péter Szilágyi. All rights reserved.
 
-package coronanet
+package rest
 
 import (
 	"encoding/json"
@@ -19,8 +19,8 @@ type gatewayStatus struct {
 	} `json:"bandwidth"`
 }
 
-// serveHTTPGateway serves API calls concerning the P2P gateway.
-func (b *Backend) serveHTTPGateway(w http.ResponseWriter, r *http.Request) {
+// serveGateway serves API calls concerning the P2P gateway.
+func (api *api) serveGateway(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
 		// Retrieve the gateway status, stuff it into the response and abort if
@@ -29,7 +29,7 @@ func (b *Backend) serveHTTPGateway(w http.ResponseWriter, r *http.Request) {
 			status gatewayStatus
 			err    error
 		)
-		status.Enabled, status.Connected, status.Bandwidth.Ingress, status.Bandwidth.Egress, err = b.Status()
+		status.Enabled, status.Connected, status.Bandwidth.Ingress, status.Bandwidth.Egress, err = api.backend.Status()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -41,7 +41,7 @@ func (b *Backend) serveHTTPGateway(w http.ResponseWriter, r *http.Request) {
 	case "PUT":
 		// Ping the backend to enable itself, don't care if it's running or not,
 		// keeps things stateless
-		if err := b.Enable(); err != nil {
+		if err := api.backend.Enable(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -50,7 +50,7 @@ func (b *Backend) serveHTTPGateway(w http.ResponseWriter, r *http.Request) {
 	case "DELETE":
 		// Ping the backend to disable itself, don't care if it's running or not,
 		// keeps things stateless
-		if err := b.Disable(); err != nil {
+		if err := api.backend.Disable(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

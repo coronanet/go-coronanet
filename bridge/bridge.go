@@ -1,9 +1,12 @@
 // go-coronanet - Coronavirus social distancing network
 // Copyright (c) 2020 Péter Szilágyi. All rights reserved.
 
-package coronanet
+// Package bridge is exposes the Corona Network to gomobile.
+package bridge
 
 import (
+	"github.com/coronanet/go-coronanet"
+	"github.com/coronanet/go-coronanet/rest"
 	"github.com/ipsn/go-ghostbridge"
 )
 
@@ -11,17 +14,17 @@ import (
 // in methods of the underlying ghostbridge.Bridge struct.
 type Bridge struct {
 	*ghostbridge.Bridge
-	backend *Backend
+	backend *coronanet.Backend
 }
 
 // NewBridge creates an instance of the ghost bridge, typed such as gomobile to
 // generate a Bridge constructor out of it.
 func NewBridge(datadir string) (*Bridge, error) {
-	backend, err := newBackend(datadir)
+	backend, err := coronanet.NewBackend(datadir)
 	if err != nil {
 		return nil, err
 	}
-	bridge, err := ghostbridge.New(backend)
+	bridge, err := ghostbridge.New(rest.New(backend))
 	if err != nil {
 		return nil, err
 	}

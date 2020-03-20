@@ -22,8 +22,8 @@ type Backend struct {
 	lock sync.RWMutex
 }
 
-// newBackend creates a new social network node.
-func newBackend(datadir string) (*Backend, error) {
+// NewBackend creates a new social network node.
+func NewBackend(datadir string) (*Backend, error) {
 	return &Backend{datadir: datadir}, nil
 }
 
