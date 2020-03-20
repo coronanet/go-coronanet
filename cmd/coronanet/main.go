@@ -12,11 +12,20 @@ import (
 	"net/http"
 
 	"github.com/coronanet/go-coronanet"
+	"github.com/coronanet/go-coronanet/rest"
 )
 
-var portFlag = flag.Int("port", 4444, "TCP port to launch the API server on")
+var (
+	datadirFlag = flag.String("datadir", ".", "Data directory for the backend")
+	portFlag    = flag.Int("port", 4444, "TCP port to launch the API server on")
+)
 
 func main() {
 	flag.Parse()
-	http.ListenAndServe(fmt.Sprintf("localhost:%d", *portFlag), new(coronanet.Backend))
+
+	backend, err := coronanet.NewBackend(*datadirFlag)
+	if err != nil {
+		panic(err)
+	}
+	http.ListenAndServe(fmt.Sprintf("localhost:%d", *portFlag), rest.New(backend))
 }

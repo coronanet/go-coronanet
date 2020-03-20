@@ -39,4 +39,4 @@ jobs:
 
         - go get -u golang.org/x/mobile/cmd/gomobile
         - go get -u golang.org/x/mobile/cmd/gobind
-        - gomobile bind --target android --javapkg xyz -v github.com/coronanet/go-coronanet
+        - gomobile bind --target android --javapkg xyz.coronanet -v github.com/coronanet/go-coronanet/bridge
