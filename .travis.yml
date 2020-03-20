@@ -9,6 +9,7 @@ jobs:
       go: 1.14.x
       script:
         - go install -v ./...
+        - go test ./...
 
     # Builder to check if the repo can be bound
     - os: linux
