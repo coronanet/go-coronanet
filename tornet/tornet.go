@@ -129,6 +129,24 @@ func New(gateway Gateway, owner *SecretIdentity, peers map[string]*PublicIdentit
 // Start opens the onion service and starts the peering processes both inbound
 // and outbound.
 func (node *Node) Start() error {
+	return node.start(true, true)
+}
+
+// StartOnlyServe opens the onion service and starts accepting remote peers. The
+// method does not enable dialing, so remote nodes are expected to find us.
+func (node *Node) StartOnlyServe() error {
+	return node.start(true, false)
+}
+
+// StartOnlyDial starts dialing configured peers. The method does not open an
+// onion endpoint and it does not accept any inbound connections.
+func (node *Node) StartOnlyDial() error {
+	return node.start(false, true)
+}
+
+// start activates the tornet node, individually controlling the two connectivity
+// directions in case some use case only requires one flow (e.g. broadcasting).
+func (node *Node) start(serve bool, dial bool) error {
 	// Ensure we don't start multiple instances
 	node.lock.Lock()
 	defer node.lock.Unlock()
@@ -137,35 +155,40 @@ func (node *Node) Start() error {
 		return errors.New("already started")
 	}
 	// Start the Tor gateway and open the onion service
-	config := &tor.ListenConf{
-		Key:         node.owner.onion,
-		RemotePorts: []int{1},
-		Version3:    true,
-	}
-	onion, err := node.gateway.Listen(context.Background(), config)
-	if err != nil {
-		return err
+	var err error
+	if serve {
+		config := &tor.ListenConf{
+			Key:         node.owner.onion,
+			RemotePorts: []int{1},
+			Version3:    true,
+		}
+		node.onion, err = node.gateway.Listen(context.Background(), config)
+		if err != nil {
+			return err
+		}
 	}
 	// Start dialing outbound connections
 	node.conns = make(map[string]net.Conn)
-	node.dials = make(map[string]chan struct{})
-	for id, peer := range node.peers {
-		// Create a termination notification channel for this peer
-		quit := make(chan struct{})
-		node.dials[id] = quit
+	if dial {
+		node.dials = make(map[string]chan struct{})
+		for id, peer := range node.peers {
+			// Create a termination notification channel for this peer
+			quit := make(chan struct{})
+			node.dials[id] = quit
 
-		// Start the persistent dialer for this peer
-		node.pend.Add(1)
-		go func(id string, peer *PublicIdentity) {
-			defer node.pend.Done()
-			node.dialer(id, peer, quit)
-		}(id, peer)
+			// Start the persistent dialer for this peer
+			node.pend.Add(1)
+			go func(id string, peer *PublicIdentity) {
+				defer node.pend.Done()
+				node.dialer(id, peer, quit)
+			}(id, peer)
+		}
 	}
 	// Start accepting inbound connections
-	node.onion = onion
 	node.quit = make(chan chan error)
-	go node.server()
-
+	if node.onion != nil {
+		go node.server()
+	}
 	return nil
 }
 
@@ -179,25 +202,34 @@ func (node *Node) Stop() error {
 		return errors.New("already stopped")
 	}
 	// Node running, terminate all network connections
-	node.onion.Close()
-
-	for id, notify := range node.dials {
-		close(notify)
-		if conn, ok := node.conns[id]; ok {
-			conn.Close()
+	if node.onion != nil {
+		node.onion.Close()
+	}
+	if node.dials != nil {
+		for id, notify := range node.dials {
+			close(notify)
+			if conn, ok := node.conns[id]; ok {
+				conn.Close()
+			}
 		}
 	}
-	node.dials = nil
-	node.conns = nil
 	node.lock.Unlock()
 
 	// Wait for things to gracefully close down
-	errc := make(chan error)
-	node.quit <- errc
-	err := <-errc
-
+	var err error
+	if node.onion != nil {
+		errc := make(chan error)
+		node.quit <- errc
+		err = <-errc
+	}
 	// All network connections and listeners down, close and return
+	node.lock.Lock()
+	node.dials = nil
+	node.conns = nil
+	node.onion = nil
 	node.quit = nil
+	node.lock.Unlock()
+
 	return err
 }
 
@@ -222,14 +254,16 @@ func (node *Node) Trust(id string, peer *PublicIdentity) error {
 	// Peer legitimately new, add and start connecting
 	node.peers[id] = peer
 
-	quit := make(chan struct{})
-	node.dials[id] = quit
+	if node.dials != nil {
+		quit := make(chan struct{})
+		node.dials[id] = quit
 
-	node.pend.Add(1)
-	go func() {
-		defer node.pend.Done()
-		node.dialer(id, peer, quit)
-	}()
+		node.pend.Add(1)
+		go func() {
+			defer node.pend.Done()
+			node.dialer(id, peer, quit)
+		}()
+	}
 	return nil
 }
 
@@ -248,9 +282,10 @@ func (node *Node) Untrust(id string) error {
 	// Peer legitimately exists, remove trust and disconnect
 	delete(node.peers, id)
 
-	close(node.dials[id])
-	delete(node.dials, id)
-
+	if node.dials != nil {
+		close(node.dials[id])
+		delete(node.dials, id)
+	}
 	if conn, ok := node.conns[id]; ok {
 		conn.Close()
 		delete(node.conns, id)
@@ -438,7 +473,7 @@ func (node *Node) handle(conn net.Conn) error {
 		delete(node.conns, id)
 	}()
 	// Before passing the connection up to the user handler, do a mini handshake to
-	// exchange any potentially updated onion addresses due to trust revokations.
+	// exchange any potentially updated onion addresses due to trust revocations.
 	go conn.Write(node.owner.onion.PublicKey())
 
 	onion := make([]byte, len(peer.onion))
