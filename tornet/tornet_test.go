@@ -30,7 +30,7 @@ func TestNodeTorConnectivity(t *testing.T) {
 	testNodeConnectivity(t, NewTorGateway(proxy))
 }
 
-// Tests that the node can use the mock (nil) Tor gateway for fake connectivity.
+// Tests that the node can use the mock Tor gateway for fake connectivity.
 func TestNodeMockConnectivity(t *testing.T) {
 	testNodeConnectivity(t, NewMockGateway())
 }
@@ -72,6 +72,50 @@ func testNodeConnectivity(t *testing.T, gateway Gateway) {
 			return
 		}
 		time.Sleep(time.Second)
+	}
+	t.Fatalf("Failed to establish bidirectional channel")
+}
+
+// Tests that unidirectional connectivity works.
+func TestNodeUnidirectionalConnectivity(t *testing.T) {
+	// Create the identities for two users
+	id1, _ := GenerateIdentity()
+	id2, _ := GenerateIdentity()
+
+	// Create the peer handlers that just sleep a bit
+	handler := func(id string, conn net.Conn) error {
+		_, err := ioutil.ReadAll(conn)
+		return err
+	}
+	// Create and boot the mutually trusting nodes
+	gateway := NewMockGateway()
+
+	node1 := New(gateway, id1, map[string]*PublicIdentity{"node2": id2.Public()}, handler)
+	if err := node1.StartOnlyServe(); err != nil {
+		t.Fatalf("Failed to start first node: %v", err)
+	}
+	defer node1.Stop()
+
+	node2 := New(gateway, id2, map[string]*PublicIdentity{"node1": id1.Public()}, handler)
+	if err := node2.StartOnlyDial(); err != nil {
+		t.Fatalf("Failed to start second node: %v", err)
+	}
+	defer node2.Stop()
+
+	// Wait a while until the nodes have a chance to connect
+	for i := 0; i < 40; i++ {
+		node1.lock.Lock()
+		conns1 := len(node1.conns)
+		node1.lock.Unlock()
+
+		node2.lock.Lock()
+		conns2 := len(node2.conns)
+		node2.lock.Unlock()
+
+		if conns1 == 1 && conns2 == 1 {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
 	t.Fatalf("Failed to establish bidirectional channel")
 }
