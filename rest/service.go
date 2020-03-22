@@ -31,6 +31,10 @@ func (api *api) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case strings.HasPrefix(r.URL.Path, "/gateway"):
 		api.serveGateway(w, r)
+	case strings.HasPrefix(r.URL.Path, "/profile"):
+		api.serveProfile(w, r, strings.TrimPrefix(r.URL.Path, "/profile"))
+	case strings.HasPrefix(r.URL.Path, "/cdn"):
+		api.serveCDN(w, r, strings.TrimPrefix(r.URL.Path, "/cdn"))
 	default:
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 	}
