@@ -47,6 +47,10 @@ func (b *Backend) Enable() error {
 	if b.proxy != nil {
 		return nil
 	}
+	// Ensure we have a crypto profile available
+	if _, err := b.Profile(); err != nil {
+		return err
+	}
 	// Create the Tor background process and let it bootstrap itself async.
 	proxy, err := tor.Start(nil, &tor.StartConf{
 		ProcessCreator:         libtor.Creator,
