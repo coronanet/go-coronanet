@@ -6,25 +6,36 @@ package coronanet
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 
 	"github.com/cretz/bine/tor"
 	"github.com/ipsn/go-libtor"
+	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 // Backend represents the social network node that can connect to other nodes in
 // the network and exchange information.
 type Backend struct {
-	datadir string   // Data directory to use for Tor and the database
-	proxy   *tor.Tor // Proxy through the Tor network, nil when offline
+	datadir  string      // Data directory to use for Tor and the database
+	database *leveldb.DB // Database to avoid custom file formats for storage
+	proxy    *tor.Tor    // Proxy through the Tor network, nil when offline
 
 	lock sync.RWMutex
 }
 
 // NewBackend creates a new social network node.
 func NewBackend(datadir string) (*Backend, error) {
-	return &Backend{datadir: datadir}, nil
+	db, err := leveldb.OpenFile(filepath.Join(datadir, "ldb"), &opt.Options{})
+	if err != nil {
+		return nil, err
+	}
+	return &Backend{
+		datadir:  datadir,
+		database: db,
+	}, nil
 }
 
 // Enable creates the network proxy into the Tor network.
@@ -41,7 +52,7 @@ func (b *Backend) Enable() error {
 		ProcessCreator:         libtor.Creator,
 		UseEmbeddedControlConn: true,
 		EnableNetwork:          true,
-		DataDir:                b.datadir,
+		DataDir:                filepath.Join(b.datadir, "tor"),
 		DebugWriter:            os.Stderr,
 		NoHush:                 true,
 	})

@@ -83,7 +83,7 @@ paths:
       responses:
         409:
           description: Local user already exists
-        201:
+        200:
           description: Successfuly created new user
     get:
       summary: Retrieves the local user's profile
@@ -106,18 +106,20 @@ paths:
             schema:
               $ref: '#/components/schemas/Profile'
       responses:
-        404:
+        400:
+          description: Provided profile is invalid
+        401:
           description: Local user doesn't exist
-        202:
+        200:
           description: User profile updated
     delete:
-      summary: Deletes the local user
+      summary: Deletes the local user (nukes all data)
       tags:
         - Profile
       responses:
-        404:
+        401:
           description: Local user doesn't exist
-        204:
+        200:
           description: Successfully deleted user
 
   /profile/avatar:
@@ -126,8 +128,10 @@ paths:
       tags:
         - Profile
       responses:
+        401:
+          description: Local user doesn't exist
         404:
-          description: Local user has not yet been created
+          description: Local user doesn't have a profile picture
         302:
           $ref: '#/components/responses/Avatar'
     put:
@@ -137,18 +141,18 @@ paths:
       requestBody:
         $ref: '#/components/requestBodies/Avatar'
       responses:
-        404:
+        401:
           description: Local user doesn't exist
-        204:
+        200:
           description: User profile picture updated
     delete:
       summary: Deletes the local user's profile picture
       tags:
         - Profile
       responses:
-        404:
+        401:
           description: Local user doesn't exist
-        204:
+        200:
           description: Successfully deleted the local user's profile picture
 
   /contacts:
@@ -203,7 +207,7 @@ paths:
           description: Local user doesn't exist
         404:
           description: Remote contact is unknown
-        202:
+        200:
           description: Contact profile updated
     delete:
       summary: Remove the remote contact profile override
@@ -214,7 +218,7 @@ paths:
           description: Local user doesn't exist
         404:
           description: Remote contact is unknown
-        204:
+        200:
           description: Successfully removed override
 
   /contacts/{id}/profile/avatar:
@@ -247,7 +251,7 @@ paths:
           description: Local user doesn't exist
         404:
           description: Remote contact is unknown
-        204:
+        200:
           description: Contact profile picture updated
     delete:
       summary: Deletes a remote contact's profile picture
@@ -258,7 +262,7 @@ paths:
           description: Local user doesn't exist
         404:
           description: Remote contact is unknown
-        204:
+        200:
           description: Successfully removed override
 
   /pairing:
@@ -269,7 +273,7 @@ paths:
       responses:
         401:
           description: Local user doesn't exist
-        201:
+        200:
           description: Successfully created pairing session
           content:
             application/json:
@@ -292,7 +296,7 @@ paths:
       responses:
         401:
           description: Local user doesn't exist
-        201:
+        200:
           description: Successfully established session
           content:
             application/json:
@@ -309,10 +313,12 @@ paths:
         - name: sha3
           in: path
           required: true
-          description: SHA3 hash of the image
+          description: SHA3 hash of the image (64 hex digit)
           schema:
             type: string
       responses:
+        400:
+          description: Image hash invalid
         404:
           description: Image unknown or unavailable
         200:
