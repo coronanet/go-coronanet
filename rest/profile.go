@@ -76,14 +76,11 @@ func (api *api) serveProfileInfo(w http.ResponseWriter, r *http.Request) {
 
 	case "DELETE":
 		// Deletes the local user (nukes all data)
-		switch err := api.backend.DeleteProfile(); err {
-		case coronanet.ErrGatewayEnabled:
-			http.Error(w, "Gateway is using profile", http.StatusForbidden)
-		case nil:
-			w.WriteHeader(http.StatusOK)
-		default:
+		if err := api.backend.DeleteProfile(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
+		w.WriteHeader(http.StatusOK)
 
 	default:
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)

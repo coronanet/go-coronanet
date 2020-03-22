@@ -21,10 +21,6 @@ var (
 	// ErrProfileExists is returned if a new profile is attempted to be created
 	// but an old one already exists.
 	ErrProfileExists = errors.New("profile already exists")
-
-	// ErrGatewayEnabled is returned if the profile is attempted to be deleted,
-	// but the gateway is actively using it.
-	ErrGatewayEnabled = errors.New("gateway enabled")
 )
 
 // profile represents a local user's profile information, both public and private.
@@ -56,17 +52,11 @@ func (b *Backend) CreateProfile() error {
 // DeleteProfile wipes the entire database of everything. It's unforgiving, no
 // backups, no restore, the data is gone!
 func (b *Backend) DeleteProfile() error {
-	// Retrieve the current profile and abort if it doesn't exist
-	if _, err := b.Profile(); err != nil {
-		return nil
-	}
-	// If the gateway is enabled, we cannot pull the data from underneath
-	if enabled, _, _, _, err := b.Status(); err != nil {
+	// If the gateway is online by any chance, tear it down
+	if err := b.Disable(); err != nil {
 		return err
-	} else if enabled {
-		return ErrGatewayEnabled
 	}
-	// Profile existed, nuke the database
+	// Independent of what's in the database, nuke everything
 	it := b.database.NewIterator(&util.Range{nil, nil}, nil)
 	for it.Next() {
 		b.database.Delete(it.Key(), nil)

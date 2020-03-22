@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/coronanet/go-coronanet/tornet"
 	"github.com/cretz/bine/tor"
 	"github.com/ipsn/go-libtor"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -19,9 +20,10 @@ import (
 // Backend represents the social network node that can connect to other nodes in
 // the network and exchange information.
 type Backend struct {
-	datadir  string      // Data directory to use for Tor and the database
-	database *leveldb.DB // Database to avoid custom file formats for storage
-	proxy    *tor.Tor    // Proxy through the Tor network, nil when offline
+	datadir  string       // Data directory to use for Tor and the database
+	database *leveldb.DB  // Database to avoid custom file formats for storage
+	proxy    *tor.Tor     // Proxy through the Tor network, nil when offline
+	overlay  *tornet.Node // Overlay network running the Corona protocol
 
 	lock sync.RWMutex
 }
@@ -48,10 +50,11 @@ func (b *Backend) Enable() error {
 		return nil
 	}
 	// Ensure we have a crypto profile available
-	if _, err := b.Profile(); err != nil {
+	prof, err := b.Profile()
+	if err != nil {
 		return err
 	}
-	// Create the Tor background process and let it bootstrap itself async.
+	// Create the Tor background process and let it bootstrap itself async
 	proxy, err := tor.Start(nil, &tor.StartConf{
 		ProcessCreator:         libtor.Creator,
 		UseEmbeddedControlConn: true,
@@ -63,7 +66,14 @@ func (b *Backend) Enable() error {
 	if err != nil {
 		return err
 	}
+	overlay := tornet.New(tornet.NewTorGateway(proxy), prof.Key, map[string]*tornet.PublicIdentity{}, nil)
+	if err := overlay.Start(); err != nil {
+		proxy.Close()
+		return err
+	}
 	b.proxy = proxy
+	b.overlay = overlay
+
 	return nil
 }
 
@@ -77,6 +87,9 @@ func (b *Backend) Disable() error {
 		return nil
 	}
 	// Proxy still functional, terminate it and return
+	b.overlay.Stop() // TODO(karalabe): Don't ignore error?
+	b.overlay = nil
+
 	if err := b.proxy.Close(); err != nil {
 		return err
 	}
