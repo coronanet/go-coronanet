@@ -52,11 +52,11 @@ func (b *Backend) CreateProfile() error {
 // DeleteProfile wipes the entire database of everything. It's unforgiving, no
 // backups, no restore, the data is gone!
 func (b *Backend) DeleteProfile() error {
-	// Retrieve the current profile and abort if it doesn't exist
-	if _, err := b.Profile(); err != nil {
+	// If the gateway is online by any chance, tear it down
+	if err := b.Disable(); err != nil {
 		return err
 	}
-	// Profile existed, nuke the database
+	// Independent of what's in the database, nuke everything
 	it := b.database.NewIterator(&util.Range{nil, nil}, nil)
 	for it.Next() {
 		b.database.Delete(it.Key(), nil)

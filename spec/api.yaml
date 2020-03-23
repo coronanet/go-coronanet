@@ -63,9 +63,10 @@ paths:
       tags:
         - Gateway
       responses:
+        403:
+          description: Cannot join the Corona Network without a local user
         200:
           description: Network connection will be established async and actively maintained
-          content: {}
     delete:
       summary: Requests the gateway to disconnect from the Corona Network
       tags:
@@ -73,7 +74,6 @@ paths:
       responses:
         200:
           description: Network connection torn down
-          content: {}
 
   /profile:
     post:
@@ -108,7 +108,7 @@ paths:
       responses:
         400:
           description: Provided profile is invalid
-        401:
+        403:
           description: Local user doesn't exist
         200:
           description: User profile updated
@@ -117,8 +117,6 @@ paths:
       tags:
         - Profile
       responses:
-        401:
-          description: Local user doesn't exist
         200:
           description: Successfully deleted user
 
@@ -128,7 +126,7 @@ paths:
       tags:
         - Profile
       responses:
-        401:
+        403:
           description: Local user doesn't exist
         404:
           description: Local user doesn't have a profile picture
@@ -141,7 +139,7 @@ paths:
       requestBody:
         $ref: '#/components/requestBodies/Avatar'
       responses:
-        401:
+        403:
           description: Local user doesn't exist
         200:
           description: User profile picture updated
@@ -150,7 +148,7 @@ paths:
       tags:
         - Profile
       responses:
-        401:
+        403:
           description: Local user doesn't exist
         200:
           description: Successfully deleted the local user's profile picture
@@ -161,7 +159,7 @@ paths:
       tags:
         - Contacts
       responses:
-        401:
+        403:
           description: Local user doesn't exist
         200:
           description: Returns a list of contact IDs
@@ -185,7 +183,7 @@ paths:
       tags:
         - Contacts
       responses:
-        401:
+        403:
           description: Local user doesn't exist
         404:
           description: Remote contact is unknown
@@ -203,7 +201,7 @@ paths:
             schema:
               $ref: '#/components/schemas/Profile'
       responses:
-        401:
+        403:
           description: Local user doesn't exist
         404:
           description: Remote contact is unknown
@@ -214,7 +212,7 @@ paths:
       tags:
         - Contacts
       responses:
-        401:
+        403:
           description: Local user doesn't exist
         404:
           description: Remote contact is unknown
@@ -234,7 +232,7 @@ paths:
       tags:
         - Contacts
       responses:
-        401:
+        403:
           description: Local user doesn't exist
         404:
           description: Remote contact is unknown
@@ -247,7 +245,7 @@ paths:
       requestBody:
         $ref: '#/components/requestBodies/Avatar'
       responses:
-        401:
+        403:
           description: Local user doesn't exist
         404:
           description: Remote contact is unknown
@@ -258,7 +256,7 @@ paths:
       tags:
         - Contacts
       responses:
-        401:
+        403:
           description: Local user doesn't exist
         404:
           description: Remote contact is unknown
@@ -271,7 +269,7 @@ paths:
       tags:
         - Contacts
       responses:
-        401:
+        403:
           description: Local user doesn't exist
         200:
           description: Successfully created pairing session
@@ -294,7 +292,7 @@ paths:
       tags:
         - Contacts
       responses:
-        401:
+        403:
           description: Local user doesn't exist
         200:
           description: Successfully established session

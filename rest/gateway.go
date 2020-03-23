@@ -6,6 +6,8 @@ package rest
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/coronanet/go-coronanet"
 )
 
 // gatewayStatus is the response struct sent back to the client when requesting
@@ -23,8 +25,7 @@ type gatewayStatus struct {
 func (api *api) serveGateway(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
-		// Retrieve the gateway status, stuff it into the response and abort if
-		// something went horribly wrong.
+		// Retrieves the current status of the Corona Network gateway
 		var (
 			status gatewayStatus
 			err    error
@@ -39,13 +40,15 @@ func (api *api) serveGateway(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(status)
 
 	case "PUT":
-		// Ping the backend to enable itself, don't care if it's running or not,
-		// keeps things stateless
-		if err := api.backend.Enable(); err != nil {
+		// Requests the gateway to connect to the Corona Network
+		switch err := api.backend.Enable(); err {
+		case coronanet.ErrProfileNotFound:
+			http.Error(w, "Cannot join the Corona Network without a local user", http.StatusForbidden)
+		case nil:
+			w.WriteHeader(http.StatusOK)
+		default:
 			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
 		}
-		w.WriteHeader(http.StatusOK)
 
 	case "DELETE":
 		// Ping the backend to disable itself, don't care if it's running or not,

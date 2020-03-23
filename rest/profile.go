@@ -67,7 +67,7 @@ func (api *api) serveProfileInfo(w http.ResponseWriter, r *http.Request) {
 		}
 		switch err := api.backend.UpdateProfile(profile.Name); err {
 		case coronanet.ErrProfileNotFound:
-			http.Error(w, "Local user doesn't exist", http.StatusUnauthorized)
+			http.Error(w, "Local user doesn't exist", http.StatusForbidden)
 		case nil:
 			w.WriteHeader(http.StatusOK)
 		default:
@@ -76,14 +76,11 @@ func (api *api) serveProfileInfo(w http.ResponseWriter, r *http.Request) {
 
 	case "DELETE":
 		// Deletes the local user (nukes all data)
-		switch err := api.backend.DeleteProfile(); err {
-		case coronanet.ErrProfileNotFound:
-			http.Error(w, "Local user doesn't exist", http.StatusUnauthorized)
-		case nil:
-			w.WriteHeader(http.StatusOK)
-		default:
+		if err := api.backend.DeleteProfile(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
+		w.WriteHeader(http.StatusOK)
 
 	default:
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -97,7 +94,7 @@ func (api *api) serveProfileAvatar(w http.ResponseWriter, r *http.Request, path 
 		// Retrieves the local user's profile and redirect to the immutable URL
 		switch profile, err := api.backend.Profile(); {
 		case err == coronanet.ErrProfileNotFound:
-			http.Error(w, "Local user doesn't exist", http.StatusUnauthorized)
+			http.Error(w, "Local user doesn't exist", http.StatusForbidden)
 		case err == nil && profile.Avatar == [32]byte{}:
 			http.Error(w, "Local user doesn't have a profile picture", http.StatusNotFound)
 		case err == nil:
@@ -124,7 +121,7 @@ func (api *api) serveProfileAvatar(w http.ResponseWriter, r *http.Request, path 
 		// Attempt to push the image into the database
 		switch err := api.backend.UploadProfilePicture(buffer.Bytes()); err {
 		case coronanet.ErrProfileNotFound:
-			http.Error(w, "Local user doesn't exist", http.StatusUnauthorized)
+			http.Error(w, "Local user doesn't exist", http.StatusForbidden)
 		case nil:
 			w.WriteHeader(http.StatusOK)
 		default:
@@ -135,7 +132,7 @@ func (api *api) serveProfileAvatar(w http.ResponseWriter, r *http.Request, path 
 		// Deletes the local user's profile picture
 		switch err := api.backend.DeleteProfile(); err {
 		case coronanet.ErrProfileNotFound:
-			http.Error(w, "Local user doesn't exist", http.StatusUnauthorized)
+			http.Error(w, "Local user doesn't exist", http.StatusForbidden)
 		case nil:
 			w.WriteHeader(http.StatusOK)
 		default:
