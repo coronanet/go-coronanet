@@ -158,8 +158,9 @@ func (node *Node) start(serve bool, dial bool) error {
 	var err error
 	if serve {
 		config := &tor.ListenConf{
-			Key:      node.owner.onion,
-			Version3: true,
+			Key:         node.owner.onion,
+			RemotePorts: []int{1},
+			Version3:    true,
 		}
 		node.onion, err = node.gateway.Listen(context.Background(), config)
 		if err != nil {

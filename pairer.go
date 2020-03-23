@@ -49,7 +49,7 @@ func newPairingServer(gateway tornet.Gateway, id *tornet.PublicIdentity) (*paire
 	// Establish a new temporary tornet to accept the pairing connection on
 	p := &pairer{
 		self:     id,
-		finished: make(chan struct{}, 1),
+		finished: make(chan struct{}),
 	}
 	p.channel = tornet.New(gateway, secret, map[string]*tornet.PublicIdentity{"": secret.Public()}, p.handle)
 	if err := p.channel.StartOnlyServe(); err != nil {
@@ -64,7 +64,7 @@ func newPairingServer(gateway tornet.Gateway, id *tornet.PublicIdentity) (*paire
 func newPairingClient(gateway tornet.Gateway, id *tornet.PublicIdentity, secret *tornet.SecretIdentity) (*pairer, error) {
 	p := &pairer{
 		self:     id,
-		finished: make(chan struct{}, 1),
+		finished: make(chan struct{}),
 	}
 	p.channel = tornet.New(gateway, secret, map[string]*tornet.PublicIdentity{"": secret.Public()}, p.handle)
 	if err := p.channel.StartOnlyDial(); err != nil {
@@ -75,6 +75,8 @@ func newPairingClient(gateway tornet.Gateway, id *tornet.PublicIdentity, secret 
 
 // wait blocks until the pairing is done or the context is cancelled.
 func (p *pairer) wait(ctx context.Context) (*tornet.PublicIdentity, error) {
+	defer p.channel.Stop()
+
 	select {
 	case <-ctx.Done():
 		return nil, errors.New("context cancelled")
@@ -90,6 +92,12 @@ func (p *pairer) wait(ctx context.Context) (*tornet.PublicIdentity, error) {
 //
 // See: https://github.com/coronanet/go-coronanet/blob/master/spec/wire.md
 func (p *pairer) handle(id string, conn net.Conn) (err error) {
+	// If the pairing already finished, reject the peer
+	select {
+	case <-p.finished:
+		return errors.New("already paired")
+	default:
+	}
 	// Create the gob encoder and decoder
 	p.enc = gob.NewEncoder(conn)
 	p.dec = gob.NewDecoder(conn)

@@ -33,6 +33,8 @@ func (api *api) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		api.serveGateway(w, r)
 	case strings.HasPrefix(r.URL.Path, "/profile"):
 		api.serveProfile(w, r, strings.TrimPrefix(r.URL.Path, "/profile"))
+	case strings.HasPrefix(r.URL.Path, "/pairing"):
+		api.servePairing(w, r)
 	case strings.HasPrefix(r.URL.Path, "/cdn"):
 		api.serveCDN(w, r, strings.TrimPrefix(r.URL.Path, "/cdn"))
 	default:
