@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/cretz/bine/torutil/ed25519"
+	"golang.org/x/crypto/sha3"
 )
 
 // SecretIdentity is a tuple consisting of a permanent certificate identifying the
@@ -147,6 +148,13 @@ func (id *SecretIdentity) trash() error {
 type PublicIdentity struct {
 	owner []byte
 	onion ed25519.PublicKey
+}
+
+// ID returns a short, globally unique identifier for this public key. Essentially
+// it is the SHA3 hash of the owner certificate.
+func (id *PublicIdentity) ID() string {
+	hash := sha3.Sum256(id.owner)
+	return string(hash[:])
 }
 
 // MarshalJSON implements the json.Marshaller interface, encoding the entire public

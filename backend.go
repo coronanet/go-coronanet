@@ -25,6 +25,7 @@ type Backend struct {
 	network  *tor.Tor    // Proxy through the Tor network, nil when offline
 
 	overlay *tornet.Node // Overlay network running the Corona protocol
+	pairing *pairer      // Currently active pairing session (nil if none)
 
 	lock sync.RWMutex
 }
@@ -75,7 +76,7 @@ func (b *Backend) Enable() error {
 	if err := b.network.EnableNetwork(context.Background(), false); err != nil {
 		return nil
 	}
-	overlay := tornet.New(tornet.NewTorGateway(b.network), prof.Key, map[string]*tornet.PublicIdentity{}, nil)
+	overlay := tornet.New(tornet.NewTorGateway(b.network), prof.Key, prof.Ring, nil)
 	if err := overlay.Start(); err != nil {
 		// Something went wrong, tear down the Tor circuits. TODO(karalabe): upstream as `b.network.DisableNetwork`?
 		if err := b.network.Control.SetConf(control.KeyVals("DisableNetwork", "1")...); err != nil {

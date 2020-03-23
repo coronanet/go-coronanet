@@ -21,13 +21,26 @@ var (
 	// ErrProfileExists is returned if a new profile is attempted to be created
 	// but an old one already exists.
 	ErrProfileExists = errors.New("profile already exists")
+
+	// ErrSelfContact is returned if a new contact is attempted to be trusted
+	// but it is the local user.
+	ErrSelfContact = errors.New("cannot contact self")
+
+	// ErrContactNotFound is returned if a new contact is attempted to be deleted
+	// but it does not exist.
+	ErrContactNotFound = errors.New("contact not found")
+
+	// ErrContactExists is returned if a new contact is attempted to be trusted
+	// but it already is trusted.
+	ErrContactExists = errors.New("contact already exists")
 )
 
 // profile represents a local user's profile information, both public and private.
 type profile struct {
-	Key    *tornet.SecretIdentity `json:"key"`
-	Name   string                 `json:"name`
-	Avatar [32]byte               `json:"avatar"`
+	Key    *tornet.SecretIdentity            `json:"key"`
+	Ring   map[string]*tornet.PublicIdentity `json:"ring"`
+	Name   string                            `json:"name`
+	Avatar [32]byte                          `json:"avatar"`
 }
 
 // CreateProfile generates a new cryptographic identity for the local used and
@@ -42,7 +55,7 @@ func (b *Backend) CreateProfile() error {
 	if err != nil {
 		return err
 	}
-	blob, err := json.Marshal(&profile{Key: key})
+	blob, err := json.Marshal(&profile{Key: key, Ring: map[string]*tornet.PublicIdentity{}})
 	if err != nil {
 		return err
 	}
@@ -144,6 +157,50 @@ func (b *Backend) DeleteProfilePicture() error {
 		return err
 	}
 	prof.Avatar = [32]byte{}
+
+	blob, err := json.Marshal(prof)
+	if err != nil {
+		return err
+	}
+	return b.database.Put(dbProfileKey, blob, nil)
+}
+
+// addContact inserts a new remote identity into the local trust ring.
+func (b *Backend) addContact(id *tornet.PublicIdentity) error {
+	// Inject the new contact into the user's profile
+	prof, err := b.Profile()
+	if err != nil {
+		return err
+	}
+	key := id.ID()
+	if prof.Key.Public().ID() == key {
+		return ErrSelfContact
+	}
+	if _, ok := prof.Ring[key]; ok {
+		return ErrContactExists
+	}
+	// Contact unique and new, update the profile
+	prof.Ring[key] = id
+
+	blob, err := json.Marshal(prof)
+	if err != nil {
+		return err
+	}
+	return b.database.Put(dbProfileKey, blob, nil)
+}
+
+// removeContact removes an existing remote identity from the local trust ring.
+func (b *Backend) removeContact(id string) error {
+	// Inject the new contact into the user's profile
+	prof, err := b.Profile()
+	if err != nil {
+		return err
+	}
+	if _, ok := prof.Ring[id]; !ok {
+		return ErrContactNotFound
+	}
+	// Contact existed, delete it and update the profile
+	delete(prof.Ring, id)
 
 	blob, err := json.Marshal(prof)
 	if err != nil {

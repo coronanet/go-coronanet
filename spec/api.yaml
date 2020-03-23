@@ -153,6 +153,64 @@ paths:
         200:
           description: Successfully deleted the local user's profile picture
 
+  /pairing:
+    post:
+      summary: Creates a pairing session for contact establishment
+      tags:
+        - Contacts
+      responses:
+        403:
+          description: Cannot pair while offline
+        200:
+          description: Successfully created pairing session
+          content:
+            application/json:
+              schema:
+                type: string
+                description: Temporary pairing secret
+    get:
+      summary: Waits for a pairing session to complete
+      tags:
+        - Contacts
+      responses:
+        403:
+          description: No pairing session in progress
+        409:
+          description: Remote contact already paired
+        200:
+          description: Successfully established session
+          content:
+            application/json:
+              schema:
+                type: string
+                description: Contact ID of the paired user
+    put:
+      summary: Joins a pairing session for contact establishment
+      tags:
+        - Contacts
+      requestBody:
+        description: Optional description in *Markdown*
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+              description: Temporary pairing secret
+      responses:
+        400:
+          description: Provided pairing secret is invalid
+        403:
+          description: Cannot pair while offline
+        409:
+          description: Remote contact already paired
+        200:
+          description: Successfully established session
+          content:
+            application/json:
+              schema:
+                type: string
+                description: Contact ID of the paired user
+
   /contacts:
     get:
       summary: List all contacts of the local user
@@ -262,45 +320,6 @@ paths:
           description: Remote contact is unknown
         200:
           description: Successfully removed override
-
-  /pairing:
-    post:
-      summary: Creates a pairing session for contact establishment
-      tags:
-        - Contacts
-      responses:
-        403:
-          description: Local user doesn't exist
-        200:
-          description: Successfully created pairing session
-          content:
-            application/json:
-              schema:
-                type: string
-                description: Temporary pairing secret
-
-  /pairing/{secret}:
-    parameters:
-      - name: secret
-        in: path
-        required: true
-        description: Secret returned from POST to /pairing
-        schema:
-          type: string
-    put:
-      summary: Joins a pairing session for contact establishment
-      tags:
-        - Contacts
-      responses:
-        403:
-          description: Local user doesn't exist
-        200:
-          description: Successfully established session
-          content:
-            application/json:
-              schema:
-                type: string
-                description: Contact ID of the paired user
 
   /cdn/images/{sha3}:
     get:
