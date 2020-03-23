@@ -4,13 +4,14 @@
 package coronanet
 
 import (
-	"fmt"
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
 
 	"github.com/coronanet/go-coronanet/tornet"
+	"github.com/cretz/bine/control"
 	"github.com/cretz/bine/tor"
 	"github.com/ipsn/go-libtor"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -20,33 +21,48 @@ import (
 // Backend represents the social network node that can connect to other nodes in
 // the network and exchange information.
 type Backend struct {
-	datadir  string       // Data directory to use for Tor and the database
-	database *leveldb.DB  // Database to avoid custom file formats for storage
-	proxy    *tor.Tor     // Proxy through the Tor network, nil when offline
-	overlay  *tornet.Node // Overlay network running the Corona protocol
+	database *leveldb.DB // Database to avoid custom file formats for storage
+	network  *tor.Tor    // Proxy through the Tor network, nil when offline
+
+	overlay *tornet.Node // Overlay network running the Corona protocol
 
 	lock sync.RWMutex
 }
 
 // NewBackend creates a new social network node.
 func NewBackend(datadir string) (*Backend, error) {
+	// Create the database for accessing locally stored data
 	db, err := leveldb.OpenFile(filepath.Join(datadir, "ldb"), &opt.Options{})
 	if err != nil {
 		return nil, err
 	}
+	// Create the Tor background process for accessing remote data
+	net, err := tor.Start(nil, &tor.StartConf{
+		ProcessCreator:         libtor.Creator,
+		UseEmbeddedControlConn: true,
+		DataDir:                filepath.Join(datadir, "tor"),
+		DebugWriter:            os.Stderr,
+		NoHush:                 true,
+	})
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	// All good, return the idle backend
 	return &Backend{
-		datadir:  datadir,
 		database: db,
+		network:  net,
 	}, nil
 }
 
-// Enable creates the network proxy into the Tor network.
+// Enable opens up the network proxy into the Tor network and starts building
+// out the P2P overlay network on top. The method is async.
 func (b *Backend) Enable() error {
 	// Ensure the node is not yet enabled
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
-	if b.proxy != nil {
+	if b.overlay != nil {
 		return nil
 	}
 	// Ensure we have a crypto profile available
@@ -54,80 +70,67 @@ func (b *Backend) Enable() error {
 	if err != nil {
 		return err
 	}
-	// Create the Tor background process and let it bootstrap itself async
-	proxy, err := tor.Start(nil, &tor.StartConf{
-		ProcessCreator:         libtor.Creator,
-		UseEmbeddedControlConn: true,
-		EnableNetwork:          true,
-		DataDir:                filepath.Join(b.datadir, "tor"),
-		DebugWriter:            os.Stderr,
-		NoHush:                 true,
-	})
-	if err != nil {
-		return err
+	// Enable the network asynchronously to avoid blocking if something funky
+	// happens (or we don't have internet) and assemble the overlay on top
+	if err := b.network.EnableNetwork(context.Background(), false); err != nil {
+		return nil
 	}
-	overlay := tornet.New(tornet.NewTorGateway(proxy), prof.Key, map[string]*tornet.PublicIdentity{}, nil)
+	overlay := tornet.New(tornet.NewTorGateway(b.network), prof.Key, map[string]*tornet.PublicIdentity{}, nil)
 	if err := overlay.Start(); err != nil {
-		proxy.Close()
+		// Something went wrong, tear down the Tor circuits. TODO(karalabe): upstream as `b.network.DisableNetwork`?
+		if err := b.network.Control.SetConf(control.KeyVals("DisableNetwork", "1")...); err != nil {
+			panic(err)
+		}
 		return err
 	}
-	b.proxy = proxy
 	b.overlay = overlay
-
 	return nil
 }
 
-// Disable stops and tears down the network proxy into the Tor network.
+// Disable tears down the P2P overlay network running on top of Tor, breaks all
+// active connections and closes off he network proxy from Tor.
 func (b *Backend) Disable() error {
 	// Ensure the node is not yet disabled
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
-	if b.proxy == nil {
+	if b.overlay == nil {
 		return nil
 	}
-	// Proxy still functional, terminate it and return
-	b.overlay.Stop() // TODO(karalabe): Don't ignore error?
+	// Terminate the P2P overlay and disconnect from Tor
+	b.overlay.Stop()
 	b.overlay = nil
 
-	if err := b.proxy.Close(); err != nil {
-		return err
+	if err := b.network.Control.SetConf(control.KeyVals("DisableNetwork", "1")...); err != nil {
+		panic(err)
 	}
-	b.proxy = nil
 	return nil
 }
 
 // Status returns whether the backend has networking enabled, whether that works
 // or not; and the total download and upload traffic incurred since starting it.
 func (b *Backend) Status() (bool, bool, uint64, uint64, error) {
-	// If the node is offline, return all zeroes
-	b.lock.RLock()
-	defer b.lock.RUnlock()
-
-	if b.proxy == nil {
-		return false, false, 0, 0, nil
-	}
-	// Tor proxy online, retrieve the current stats
-	res, err := b.proxy.Control.GetInfo("network-liveness", "traffic/read", "traffic/written")
+	// Retrieve whether the network is enabled or not
+	res, err := b.network.Control.GetConf("DisableNetwork")
 	if err != nil {
-		return true, false, 0, 0, err
+		return false, false, 0, 0, err
 	}
-	var connected bool
-	switch res[0].Val {
-	case "up":
-		connected = true
-	case "down":
-		connected = false
-	default:
-		return true, false, 0, 0, fmt.Errorf("unknown network liveness: %v", res[0].Val)
+	enabled := res[0].Val == "0"
+
+	// Retrieve some status metrics from Tor itself
+	res, err = b.network.Control.GetInfo("status/circuit-established", "traffic/read", "traffic/written", "network-liveness")
+	if err != nil {
+		return enabled, false, 0, 0, err
 	}
+	connected := res[0].Val == "1" // TODO(karalabe): this doesn't seem to detect going offline, help?
+
 	ingress, err := strconv.ParseUint(res[1].Val, 0, 64)
 	if err != nil {
-		return true, connected, 0, 0, err
+		return enabled, connected, 0, 0, err
 	}
 	egress, err := strconv.ParseUint(res[2].Val, 0, 64)
 	if err != nil {
-		return true, connected, ingress, 0, err
+		return enabled, connected, ingress, 0, err
 	}
-	return true, connected, ingress, egress, nil
+	return enabled, connected, ingress, egress, nil
 }
