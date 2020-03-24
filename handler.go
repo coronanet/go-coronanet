@@ -160,7 +160,7 @@ func (b *Backend) handleContactV1(logger log.Logger, id string, enc *gob.Encoder
 					logger.Warn("Failed to set initial name", "err", err)
 				}
 			} else if info.Name != message.Profile.Name {
-				logger.Info("Rejecting remote name change", "have", info.Name)
+				logger.Warn("Rejecting remote name change", "have", info.Name)
 			}
 			// If the avatar was changed, request te new one
 			if info.Avatar != message.Profile.Avatar {

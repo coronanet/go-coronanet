@@ -228,6 +228,24 @@ paths:
                 items:
                   type: string
 
+  /contacts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Globally unique identifier of contact
+        schema:
+          type: string
+    delete:
+      summary: Removes an existing contact
+      tags:
+        - Contacts
+      responses:
+        403:
+          description: Remote contact doesn't exist
+        200:
+          description: Successfully deleted user
+
   /contacts/{id}/profile:
     parameters:
       - name: id
