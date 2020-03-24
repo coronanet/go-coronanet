@@ -45,7 +45,30 @@ func (api *api) serveContact(w http.ResponseWriter, r *http.Request, path string
 		http.Error(w, "Contact ID invalid", http.StatusBadRequest)
 		return
 	}
-	api.serveContactProfile(w, r, path[1:65], path[65:])
+	id := path[1:65]
+	path = path[65:]
+
+	// If we're not serving the contact root, descend into the profile
+	if path != "" {
+		api.serveContactProfile(w, r, id, path)
+		return
+	}
+	// Handle serving the contact root
+	switch r.Method {
+	case "DELETE":
+		// Removes an existing contact
+		switch err := api.backend.DeleteContact(id); err {
+		case coronanet.ErrContactNotFound:
+			http.Error(w, "Remote contact doesn't exist", http.StatusForbidden)
+		case nil:
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+	default:
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	}
 }
 
 // serveContactProfile serves API calls concerning a remote contact profile.

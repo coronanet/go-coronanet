@@ -28,7 +28,6 @@ func (b *Backend) AddContact(id *tornet.PublicIdentity) (string, error) {
 
 	// Inject the security credentials into the local profile and create the profile
 	// entry for the remote user.
-	uid := id.ID()
 	if err := b.addContact(id); err != nil {
 		return "", err
 	}
@@ -36,6 +35,7 @@ func (b *Backend) AddContact(id *tornet.PublicIdentity) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	uid := id.ID()
 	if err := b.database.Put(append(dbContactPrefix, uid...), blob, nil); err != nil {
 		return "", err
 	}
@@ -44,6 +44,29 @@ func (b *Backend) AddContact(id *tornet.PublicIdentity) (string, error) {
 		return uid, nil
 	}
 	return uid, b.overlay.Trust(uid, id)
+}
+
+// DeleteContact removes the contact from the trust ring, deletes all associated
+// data and disconnects from the network.
+func (b *Backend) DeleteContact(id string) error {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
+	// Remove the security credentials from the local profile
+	if err := b.removeContact(id); err != nil {
+		return err
+	}
+	// Break any pending connections from the overlay network
+	if b.overlay != nil {
+		if err := b.overlay.Untrust(id); err != nil {
+			return err
+		}
+	}
+	// Remove all data associated with the contact
+	if err := b.deleteContactPicture(id); err != nil {
+		return err
+	}
+	return b.database.Delete(append(dbContactPrefix, id...), nil)
 }
 
 // Contacts returns the unique ids of all the current contacts.

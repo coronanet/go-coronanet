@@ -5,6 +5,7 @@ package coronanet
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -41,8 +42,8 @@ func NewBackend(datadir string) (*Backend, error) {
 		ProcessCreator:         libtor.Creator,
 		UseEmbeddedControlConn: true,
 		DataDir:                filepath.Join(datadir, "tor"),
-		//DebugWriter:            os.Stderr,
-		//NoHush:                 true,
+		DebugWriter:            os.Stderr,
+		NoHush:                 true,
 	})
 	if err != nil {
 		db.Close()
