@@ -241,10 +241,8 @@ paths:
       tags:
         - Contacts
       responses:
-        403:
-          description: Local user doesn't exist
         404:
-          description: Remote contact is unknown
+          description: Remote contact doesn't exist
         200:
           $ref: '#/components/responses/Profile'
     put:
@@ -259,23 +257,12 @@ paths:
             schema:
               $ref: '#/components/schemas/Profile'
       responses:
+        400:
+          description: Provided profile is invalid
         403:
-          description: Local user doesn't exist
-        404:
-          description: Remote contact is unknown
+          description: Remote contact doesn't exist
         200:
           description: Contact profile updated
-    delete:
-      summary: Remove the remote contact profile override
-      tags:
-        - Contacts
-      responses:
-        403:
-          description: Local user doesn't exist
-        404:
-          description: Remote contact is unknown
-        200:
-          description: Successfully removed override
 
   /contacts/{id}/profile/avatar:
     parameters:
@@ -296,30 +283,6 @@ paths:
           description: Remote contact is unknown
         302:
           $ref: '#/components/responses/Avatar'
-    put:
-      summary: Overrides a remote contact's profile picture
-      tags:
-        - Contacts
-      requestBody:
-        $ref: '#/components/requestBodies/Avatar'
-      responses:
-        403:
-          description: Local user doesn't exist
-        404:
-          description: Remote contact is unknown
-        200:
-          description: Contact profile picture updated
-    delete:
-      summary: Deletes a remote contact's profile picture
-      tags:
-        - Contacts
-      responses:
-        403:
-          description: Local user doesn't exist
-        404:
-          description: Remote contact is unknown
-        200:
-          description: Successfully removed override
 
   /cdn/images/{sha3}:
     get:
@@ -372,6 +335,7 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Profile'
+
     Avatar:
       description: Redirect to immutable image
       content:

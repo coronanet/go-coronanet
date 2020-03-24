@@ -103,7 +103,6 @@ func (p *pairer) handle(id string, conn net.Conn) (err error) {
 	p.dec = gob.NewDecoder(conn)
 
 	// Make sure the connection is torn down but send any errors
-	defer conn.Close()
 	defer func() {
 		if err != nil {
 			p.failure = err
