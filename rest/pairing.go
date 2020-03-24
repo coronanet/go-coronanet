@@ -35,12 +35,12 @@ func (api *api) servePairing(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "No pairing session in progress", http.StatusForbidden)
 		case nil:
 			// Pairing succeeded, try to inject the contact into the backend
-			switch err := api.backend.AddContact(id); err {
+			switch uid, err := api.backend.AddContact(id); err {
 			case coronanet.ErrContactExists:
 				http.Error(w, "Remote contact already paired", http.StatusConflict)
 			case nil:
 				w.Header().Add("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(id.ID())
+				json.NewEncoder(w).Encode(uid)
 			default:
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
@@ -67,12 +67,12 @@ func (api *api) servePairing(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Cannot pair while offline", http.StatusForbidden)
 		case nil:
 			// Pairing succeeded, try to inject the contact into the backend
-			switch err := api.backend.AddContact(id); err {
+			switch uid, err := api.backend.AddContact(id); err {
 			case coronanet.ErrContactExists:
 				http.Error(w, "Remote contact already paired", http.StatusConflict)
 			case nil:
 				w.Header().Add("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(id.ID())
+				json.NewEncoder(w).Encode(uid)
 			default:
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}

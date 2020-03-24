@@ -12,6 +12,7 @@ import (
 )
 
 var (
+	// dbProfileKey is the database key for storing the local user's profile.
 	dbProfileKey = []byte("profile")
 
 	// ErrProfileNotFound is returned if the profile is attempted to be read from
@@ -26,7 +27,7 @@ var (
 	// but it is the local user.
 	ErrSelfContact = errors.New("cannot contact self")
 
-	// ErrContactNotFound is returned if a new contact is attempted to be deleted
+	// ErrContactNotFound is returned if a new contact is attempted to be accessed
 	// but it does not exist.
 	ErrContactNotFound = errors.New("contact not found")
 

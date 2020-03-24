@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -151,10 +152,10 @@ type PublicIdentity struct {
 }
 
 // ID returns a short, globally unique identifier for this public key. Essentially
-// it is the SHA3 hash of the owner certificate.
+// it is the SHA3 hash of the owner certificate in hexadecimal form.
 func (id *PublicIdentity) ID() string {
 	hash := sha3.Sum256(id.owner)
-	return string(hash[:])
+	return hex.EncodeToString(hash[:])
 }
 
 // MarshalJSON implements the json.Marshaller interface, encoding the entire public

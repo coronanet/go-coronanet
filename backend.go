@@ -5,7 +5,6 @@ package coronanet
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -42,8 +41,8 @@ func NewBackend(datadir string) (*Backend, error) {
 		ProcessCreator:         libtor.Creator,
 		UseEmbeddedControlConn: true,
 		DataDir:                filepath.Join(datadir, "tor"),
-		DebugWriter:            os.Stderr,
-		NoHush:                 true,
+		//DebugWriter:            os.Stderr,
+		//NoHush:                 true,
 	})
 	if err != nil {
 		db.Close()
@@ -76,7 +75,7 @@ func (b *Backend) Enable() error {
 	if err := b.network.EnableNetwork(context.Background(), false); err != nil {
 		return nil
 	}
-	overlay := tornet.New(tornet.NewTorGateway(b.network), prof.Key, prof.Ring, nil)
+	overlay := tornet.New(tornet.NewTorGateway(b.network), prof.Key, prof.Ring, b.handleContact)
 	if err := overlay.Start(); err != nil {
 		// Something went wrong, tear down the Tor circuits. TODO(karalabe): upstream as `b.network.DisableNetwork`?
 		if err := b.network.Control.SetConf(control.KeyVals("DisableNetwork", "1")...); err != nil {

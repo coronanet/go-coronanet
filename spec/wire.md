@@ -66,6 +66,8 @@ type Profile struct {
 }
 ```
 
+Although clients will always return the name too in their response, this field may (read, generally will) be ignored to avoid faking someone else.
+
 As seen above, the user's profile picture is not sent back in the response, to avoid downloading a large chunk of data only to realise it hasn't changed. Instead, it's SHA3 hash is returned, based on which the caller can decide to request or not. The profile picture retrieval is:
 
 ```go
@@ -92,3 +94,7 @@ type Identity struct {
 	Blob []byte // Encoded tornet public identity, internal format
 }
 ```
+
+Notes:
+
+- The `v1` pairing protocol is overly simplistic for prototyping reasons. Future versions need to implement some profile exchange and confirmation too to ensure that you are talking to the correct person **before** trusting them with access to your (public) keys.
