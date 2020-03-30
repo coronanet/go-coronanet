@@ -5,6 +5,7 @@ package coronanet
 
 import (
 	"context"
+	"encoding/gob"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -28,8 +29,10 @@ type Backend struct {
 	overlay *tornet.Node // Overlay network running the Corona protocol
 	pairing *pairer      // Currently active pairing session (nil if none)
 
+	peerset map[tornet.IdentityFingerprint]*gob.Encoder // Current active connections for updates
+
+	scheduleUpdate     chan *schedulerRequest    // Scheduler channel for app update requests
 	scheduleKeyring    chan tornet.SecretKeyRing // Scheduler channel when the keyring is updated
-	scheduleNetwork    chan struct{}             // Scheduler channel when network access changes
 	scheduleTeardown   chan chan struct{}        // Scheduler channel when the system is terminating
 	scheduleTerminated chan struct{}             // Termination channel to unblock any schedules
 
@@ -59,6 +62,8 @@ func NewBackend(datadir string) (*Backend, error) {
 	backend := &Backend{
 		database:           db,
 		network:            net,
+		peerset:            make(map[tornet.IdentityFingerprint]*gob.Encoder),
+		scheduleUpdate:     make(chan *schedulerRequest),
 		scheduleKeyring:    make(chan tornet.SecretKeyRing),
 		scheduleTeardown:   make(chan chan struct{}),
 		scheduleTerminated: make(chan struct{}),
@@ -89,17 +94,12 @@ func (b *Backend) initOverlay(keyring tornet.SecretKeyRing) error {
 		KeyRing:     keyring,
 		RingHandler: b.updateKeyring,
 		ConnHandler: b.handleContact,
+		ConnTimeout: connectionIdleTimeout,
 	})
 	if err != nil {
 		return err
 	}
 	b.overlay = overlay
-
-	// Since the overlay was constructed, ping the scheduler to start up
-	select {
-	case b.scheduleKeyring <- keyring:
-	case <-b.scheduleTerminated:
-	}
 	return nil
 }
 
@@ -147,14 +147,34 @@ func (b *Backend) Close() error {
 // out the P2P overlay network on top. The method is async.
 func (b *Backend) Enable() error {
 	log.Info("Enabling gateway networking")
-	return b.network.EnableNetwork(context.Background(), false)
+	if err := b.network.EnableNetwork(context.Background(), false); err != nil {
+		return err
+	}
+	// Networking enabled, resume all scheduled dials
+	prof, err := b.Profile()
+	if err != nil {
+		return nil // No profile is fine
+	}
+	select {
+	case b.scheduleKeyring <- *prof.KeyRing:
+	case <-b.scheduleTerminated:
+	}
+	return nil
 }
 
 // Disable tears down the P2P overlay network running on top of Tor, breaks all
 // active connections and closes off he network proxy from Tor.
 func (b *Backend) Disable() error {
 	log.Info("Disabling gateway networking")
-	return b.network.Control.SetConf(control.KeyVals("DisableNetwork", "1")...)
+	if err := b.network.Control.SetConf(control.KeyVals("DisableNetwork", "1")...); err != nil {
+		return err
+	}
+	// Networking disabled, suspend all scheduled dials as pointless
+	select {
+	case b.scheduleKeyring <- tornet.SecretKeyRing{}:
+	case <-b.scheduleTerminated:
+	}
+	return nil
 }
 
 // Status returns whether the backend has networking enabled, whether that works

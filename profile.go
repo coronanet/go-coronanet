@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/coronanet/go-coronanet/protocol/corona"
 	"github.com/coronanet/go-coronanet/tornet"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/syndtr/goleveldb/leveldb/util"
@@ -153,7 +154,28 @@ func (b *Backend) UpdateProfile(name string) error {
 	if err != nil {
 		return err
 	}
-	return b.database.Put(dbProfileKey, blob, nil)
+	if err := b.database.Put(dbProfileKey, blob, nil); err != nil {
+		return err
+	}
+	// Propagate the update to all our contacts
+	var offline []tornet.IdentityFingerprint
+	for uid := range prof.KeyRing.Trusted {
+		if enc := b.peerset[uid]; enc != nil {
+			go enc.Encode(&coronaMessage{Profile: &corona.Profile{Name: prof.Name, Avatar: prof.Avatar}})
+		} else {
+			offline = append(offline, uid)
+		}
+	}
+	if len(offline) > 0 {
+		select {
+		case b.scheduleUpdate <- &schedulerRequest{
+			request:  schedulerProfileUpdate,
+			contacts: offline,
+		}:
+		case <-b.scheduleTerminated:
+		}
+	}
+	return nil
 }
 
 // UploadProfilePicture uploads a new profile picture for the user.

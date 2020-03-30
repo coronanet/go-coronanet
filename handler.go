@@ -115,6 +115,21 @@ func (b *Backend) handleContactHandshake(enc *gob.Encoder, dec *gob.Decoder) (ui
 // handleContactV1 is ran when a remote contact connects to us via the tornet
 // and negotiates a common `corona` protocol version of 1.
 func (b *Backend) handleContactV1(logger log.Logger, uid tornet.IdentityFingerprint, enc *gob.Encoder, dec *gob.Decoder) error {
+	// Track the peer while connected to allow sending direct updates too
+	b.lock.Lock()
+	if _, ok := b.peerset[uid]; ok {
+		panic("peer already registered")
+	}
+	b.peerset[uid] = enc
+	b.lock.Unlock()
+
+	defer func() {
+		b.lock.Lock()
+		delete(b.peerset, uid)
+		b.lock.Unlock()
+	}()
+
+	// Start processing messages until torn down
 	for {
 		// Read the next message off the network
 		message := new(coronaMessage)

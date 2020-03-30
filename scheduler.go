@@ -11,6 +11,13 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 )
 
+// schedulerRequest is a request towards the scheduler to establish contact with
+// a batch of peers in a maximum designated amount of time.
+type schedulerRequest struct {
+	request  time.Duration
+	contacts []tornet.IdentityFingerprint
+}
+
 // scheduler is responsible for scheduling networking data exchanges based on the
 // various priorities that events towards contacts might have.
 func (b *Backend) scheduler() {
@@ -64,6 +71,23 @@ func (b *Backend) scheduler() {
 				}
 			}
 
+		case req := <-b.scheduleUpdate:
+			// Application layer requested an update to be pushed out to one or
+			// more contacts. Merge the request with the current schedule.
+			for _, uid := range req.contacts {
+				had, ok := schedule[uid]
+				old := time.Until(had)
+				switch {
+				case !ok:
+					log.Error("Reschedule requested for unknown contact", "contact", uid, "schedule", req.request)
+				case old > req.request:
+					log.Debug("Rescheduling dial or earlier time", "contact", uid, "old", old, "new", req.request)
+					schedule[nextDial] = time.Now().Add(req.request)
+				default:
+					log.Trace("Reschedule to later time ignored", "contact", uid, "old", old, "new", req.request)
+				}
+			}
+
 		case <-nextChan:
 			nextChan = nil
 
@@ -80,11 +104,12 @@ func (b *Backend) scheduler() {
 			}
 			log.Debug("Scheduling dial for contact", "contact", nextDial)
 			if err := overlay.Dial(context.TODO(), nextDial); err != nil {
-				log.Error("Dial request failed", "contact", nextDial, "err", err)
-				schedule[nextDial] = time.Now().Add(time.Minute) // TODO(karalabe): Handle offline meaningfully
+				log.Error("Dial request failed", "contact", nextDial, "schedule", schedulerFailureRedial, "err", err)
+				schedule[nextDial] = time.Now().Add(schedulerFailureRedial)
 			} else {
 				// Dialing succeeded, unless someone has anything important, check back tomorrow
-				schedule[nextDial] = time.Now().Add(24 * time.Hour)
+				log.Debug("Dialing succeeded, rescheduling", "contact", nextDial, "schedule", schedulerSanityRedial)
+				schedule[nextDial] = time.Now().Add(schedulerSanityRedial)
 			}
 		}
 	}

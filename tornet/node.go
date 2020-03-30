@@ -21,6 +21,7 @@ type NodeConfig struct {
 	KeyRing     SecretKeyRing // Key ring for peer management
 	RingHandler RingHandler   // Handler to run for keyring changes
 	ConnHandler ConnHandler   // Handler to run for each peer
+	ConnTimeout time.Duration // Maximum idle time after which to disconnect
 }
 
 // RingHandler is a callback for local or remote keyring changes.
@@ -66,6 +67,7 @@ func NewNode(config NodeConfig) (*Node, error) {
 	node.peerset = NewPeerSet(PeerSetConfig{
 		Trusted: trusted,
 		Handler: node.handle,
+		Timeout: config.ConnTimeout,
 	})
 	// For every currently maintained address, launch a listener server
 	for _, address := range node.keyring.Addresses {

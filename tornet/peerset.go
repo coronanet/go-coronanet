@@ -27,14 +27,16 @@ type ConnHandler func(id IdentityFingerprint, conn net.Conn)
 type PeerSetConfig struct {
 	Trusted []PublicIdentity // Initial set of trusted authorizations
 	Handler ConnHandler      // Handler to run for each added connection
+	Timeout time.Duration    // Maximum idle time after which to disconnect
 }
 
 // PeerSet is a collection of live network connections through Tor. It's purpose
 // is to allow de-duplicating connections that might arrive from a variety of
 // onion addresses.
 type PeerSet struct {
-	gateway Gateway     // Tor gateway to open the listener through
-	handler ConnHandler // Network to run for each added connection
+	gateway Gateway       // Tor gateway to open the listener through
+	handler ConnHandler   // Network to run for each added connection
+	timeout time.Duration // Maximum idle time after which to disconnect
 
 	auths map[IdentityFingerprint]PublicIdentity // Remote identities for inbound dials
 	conns map[IdentityFingerprint]net.Conn       // Currently live remote connections
@@ -47,6 +49,7 @@ type PeerSet struct {
 func NewPeerSet(config PeerSetConfig) *PeerSet {
 	peerset := &PeerSet{
 		handler: config.Handler,
+		timeout: config.Timeout,
 		auths:   make(map[IdentityFingerprint]PublicIdentity),
 		conns:   make(map[IdentityFingerprint]net.Conn),
 	}
@@ -143,7 +146,10 @@ func (ps *PeerSet) handle(conn net.Conn) {
 	}
 	conn.SetDeadline(time.Time{})
 
-	// Handshake complete, pass the connection to the user
+	// Handshake complete, initiate the time breaker and pass to the user
+	if ps.timeout != 0 {
+		conn = newBreaker(conn, ps.timeout)
+	}
 	ps.handler(uid, conn)
 }
 
