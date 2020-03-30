@@ -8,7 +8,6 @@ import (
 	"net/http"
 
 	"github.com/coronanet/go-coronanet"
-	"github.com/coronanet/go-coronanet/tornet"
 )
 
 // servePairing serves API calls concerning the contact pairing.
@@ -16,14 +15,12 @@ func (api *api) servePairing(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "POST":
 		// Creates a pairing session for contact establishment
-		switch secret, err := api.backend.InitPairing(); err {
+		switch secret, address, err := api.backend.InitPairing(); err {
 		case coronanet.ErrNetworkDisabled:
 			http.Error(w, "Cannot pair while offline", http.StatusForbidden)
 		case nil:
 			w.Header().Add("Content-Type", "application/json")
-
-			blob, _ := json.Marshal(secret)
-			json.NewEncoder(w).Encode(blob) // Bit unorthodox, but we don't want callers to interpret the data
+			json.NewEncoder(w).Encode(append(secret, address...))
 		default:
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -57,12 +54,11 @@ func (api *api) servePairing(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Provided pairing secret is invalid: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		secret := new(tornet.SecretIdentity)
-		if err := secret.UnmarshalJSON(blob); err != nil {
-			http.Error(w, "Provided pairing secret is invalid: "+err.Error(), http.StatusBadRequest)
+		if len(blob) != 64 {
+			http.Error(w, "Provided pairing secret is invalid: not 64 bytes", http.StatusBadRequest)
 			return
 		}
-		switch id, err := api.backend.JoinPairing(secret); err {
+		switch id, err := api.backend.JoinPairing(blob[:32], blob[32:]); err {
 		case coronanet.ErrNetworkDisabled:
 			http.Error(w, "Cannot pair while offline", http.StatusForbidden)
 		case nil:

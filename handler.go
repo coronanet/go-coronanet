@@ -13,6 +13,7 @@ import (
 
 	"github.com/coronanet/go-coronanet/protocol/corona"
 	"github.com/coronanet/go-coronanet/protocol/system"
+	"github.com/coronanet/go-coronanet/tornet"
 	"github.com/ethereum/go-ethereum/log"
 	"golang.org/x/crypto/sha3"
 )
@@ -29,9 +30,9 @@ type coronaMessage struct {
 }
 
 // handleContact is ran when a remote contact connects to us via the tornet.
-func (b *Backend) handleContact(id string, conn net.Conn) error {
+func (b *Backend) handleContact(uid tornet.IdentityFingerprint, conn net.Conn) {
 	// Create a logger to track what's going on
-	logger := log.New("contact", id[:8])
+	logger := log.New("contact", uid)
 	logger.Info("Contact connected")
 
 	// Create the gob encoder and decoder
@@ -44,21 +45,21 @@ func (b *Backend) handleContact(id string, conn net.Conn) error {
 	ver, err := b.handleContactHandshake(enc, dec)
 	if err != nil {
 		logger.Warn("Protocol handshake failed", "err", err)
-		return err
+		return
 	}
 	// Common protocol version negotiated, start up the actual message handler
 	switch ver {
 	case 1:
 		// Version one will do a profile exchange on connect
 		go enc.Encode(&coronaMessage{GetProfile: &corona.GetProfile{}})
-		err := b.handleContactV1(logger, id, enc, dec)
+		err := b.handleContactV1(logger, uid, enc, dec)
 		if err != nil {
 			// Something failed horribly, try to send over an error
 			conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 			enc.Encode(&coronaMessage{Disconnect: &system.Disconnect{Reason: err.Error()}})
 		}
 		logger.Warn("Connection torn down", "err", err)
-		return err
+		return
 	default:
 		panic(fmt.Sprintf("unhandled corona protocol version: %d", ver))
 	}
@@ -113,7 +114,7 @@ func (b *Backend) handleContactHandshake(enc *gob.Encoder, dec *gob.Decoder) (ui
 
 // handleContactV1 is ran when a remote contact connects to us via the tornet
 // and negotiates a common `corona` protocol version of 1.
-func (b *Backend) handleContactV1(logger log.Logger, id string, enc *gob.Encoder, dec *gob.Decoder) error {
+func (b *Backend) handleContactV1(logger log.Logger, uid tornet.IdentityFingerprint, enc *gob.Encoder, dec *gob.Decoder) error {
 	for {
 		// Read the next message off the network
 		message := new(coronaMessage)
@@ -149,13 +150,13 @@ func (b *Backend) handleContactV1(logger log.Logger, id string, enc *gob.Encoder
 			logger.Info("Contact sent profile", "name", message.Profile.Name, "avatar", hex.EncodeToString(message.Profile.Avatar[:]))
 
 			// Update the profile name if initial exchange, ignore otherwise
-			info, err := b.Contact(id)
+			info, err := b.Contact(uid)
 			if err != nil {
 				panic(err) // Profile must exist for this handler to run
 			}
 			if info.Name == "" {
 				logger.Info("Setting initial name")
-				if err := b.UpdateContact(id, message.Profile.Name); err != nil {
+				if err := b.UpdateContact(uid, message.Profile.Name); err != nil {
 					// Well, shit. Not much we can do, ignore and run with it
 					logger.Warn("Failed to set initial name", "err", err)
 				}
@@ -191,10 +192,19 @@ func (b *Backend) handleContactV1(logger log.Logger, id string, enc *gob.Encoder
 			}
 
 		case message.Avatar != nil:
+			// If the remote user deleted their avatar, delete locally too
+			if len(message.Avatar.Image) == 0 {
+				logger.Info("Contact deleted their avatar")
+				if err := b.deleteContactPicture(uid); err != nil {
+					logger.Warn("Failed to delete avatar", "err", err)
+				}
+				return nil
+			}
+			// Remote user sent new avatar, inject it into the database
 			hash := sha3.Sum256(message.Avatar.Image)
 
 			logger.Info("Contact sent avatar", "hash", hex.EncodeToString(hash[:]), "bytes", len(message.Avatar.Image))
-			if err := b.uploadContactPicture(id, message.Avatar.Image); err != nil {
+			if err := b.uploadContactPicture(uid, message.Avatar.Image); err != nil {
 				logger.Warn("Failed to set avatar", "err", err)
 			}
 		}

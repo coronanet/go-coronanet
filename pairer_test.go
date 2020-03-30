@@ -14,17 +14,25 @@ import (
 // Tests that basic pairing works.
 func TestPairing(t *testing.T) {
 	// Create two identities, one for initiating pairing and one for joining
-	initKey, _ := tornet.GenerateIdentity()
-	joinKey, _ := tornet.GenerateIdentity()
+	initKeyRing, _ := tornet.GenerateKeyRing()
+	joinKeyRing, _ := tornet.GenerateKeyRing()
 
+	initRemote := tornet.RemoteKeyRing{
+		Identity: initKeyRing.Identity.Public(),
+		Address:  initKeyRing.Addresses[0].Public(),
+	}
+	joinRemote := tornet.RemoteKeyRing{
+		Identity: joinKeyRing.Identity.Public(),
+		Address:  joinKeyRing.Addresses[0].Public(),
+	}
 	// Initiate a pairing session and join it with the other identity
 	gateway := tornet.NewMockGateway()
 
-	initPairer, secret, err := newPairingServer(gateway, initKey.Public())
+	initPairer, secret, address, err := newPairingServer(gateway, initRemote)
 	if err != nil {
 		t.Fatalf("failed to initiate pairing: %v", err)
 	}
-	joinPairer, err := newPairingClient(gateway, joinKey.Public(), secret)
+	joinPairer, err := newPairingClient(gateway, joinRemote, secret, address)
 	if err != nil {
 		t.Fatalf("failed to join pairing: %v", err)
 	}
@@ -38,14 +46,16 @@ func TestPairing(t *testing.T) {
 		t.Fatalf("client side pairing failed: %v", err)
 	}
 	// Ensure the exchanged secrets match
-	initKeyBlob, _ := initKey.Public().MarshalJSON()
-	initPubBlob, _ := initPub.MarshalJSON()
-	if !bytes.Equal(initPubBlob, initKeyBlob) {
-		t.Errorf("initer key mismatch: have %x, want %x", initPubBlob, initKeyBlob)
+	if !bytes.Equal(initPub.Identity, initRemote.Identity) {
+		t.Errorf("initer identity mismatch: have %x, want %x", initPub.Identity, initRemote.Identity)
 	}
-	joinKeyBlob, _ := joinKey.Public().MarshalJSON()
-	joinPubBlob, _ := joinPub.MarshalJSON()
-	if !bytes.Equal(joinPubBlob, joinKeyBlob) {
-		t.Errorf("joiner key mismatch: have %x, want %x", joinPubBlob, joinKeyBlob)
+	if !bytes.Equal(initPub.Address, initRemote.Address) {
+		t.Errorf("initer address mismatch: have %x, want %x", initPub.Address, initRemote.Address)
+	}
+	if !bytes.Equal(joinPub.Identity, joinRemote.Identity) {
+		t.Errorf("joiner identity mismatch: have %x, want %x", joinPub.Identity, joinRemote.Identity)
+	}
+	if !bytes.Equal(joinPub.Address, joinRemote.Address) {
+		t.Errorf("joiner address mismatch: have %x, want %x", joinPub.Address, joinRemote.Address)
 	}
 }

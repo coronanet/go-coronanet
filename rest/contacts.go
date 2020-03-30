@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/coronanet/go-coronanet"
+	"github.com/coronanet/go-coronanet/tornet"
 )
 
 // serveContacts serves API calls concerning all contacts.
@@ -41,23 +42,22 @@ func (api *api) serveContacts(w http.ResponseWriter, r *http.Request, path strin
 // serveContact serves API calls concerning a single remote contact.
 func (api *api) serveContact(w http.ResponseWriter, r *http.Request, path string) {
 	// All contact APIs need to provide the unique id
-	if len(path) < 65 || (len(path) > 65 && path[65] != '/') {
-		http.Error(w, "Contact ID invalid", http.StatusBadRequest)
-		return
-	}
-	id := path[1:65]
-	path = path[65:]
+	parts := strings.SplitN(path[1:], "/", 2)
 
+	uid := tornet.IdentityFingerprint(parts[0])
+	if len(parts) > 1 {
+		path = "/" + parts[1]
+	}
 	// If we're not serving the contact root, descend into the profile
 	if path != "" {
-		api.serveContactProfile(w, r, id, path)
+		api.serveContactProfile(w, r, uid, path)
 		return
 	}
 	// Handle serving the contact root
 	switch r.Method {
 	case "DELETE":
 		// Removes an existing contact
-		switch err := api.backend.DeleteContact(id); err {
+		switch err := api.backend.DeleteContact(uid); err {
 		case coronanet.ErrContactNotFound:
 			http.Error(w, "Remote contact doesn't exist", http.StatusForbidden)
 		case nil:
@@ -72,23 +72,23 @@ func (api *api) serveContact(w http.ResponseWriter, r *http.Request, path string
 }
 
 // serveContactProfile serves API calls concerning a remote contact profile.
-func (api *api) serveContactProfile(w http.ResponseWriter, r *http.Request, id string, path string) {
+func (api *api) serveContactProfile(w http.ResponseWriter, r *http.Request, uid tornet.IdentityFingerprint, path string) {
 	switch {
 	case path == "/profile":
-		api.serveContactProfileInfo(w, r, id)
+		api.serveContactProfileInfo(w, r, uid)
 	case strings.HasPrefix(path, "/profile/avatar"):
-		api.serveContactProfileAvatar(w, r, id)
+		api.serveContactProfileAvatar(w, r, uid)
 	default:
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 	}
 }
 
 // serveContactProfileInfo serves API calls concerning the local user's profile infos.
-func (api *api) serveContactProfileInfo(w http.ResponseWriter, r *http.Request, id string) {
+func (api *api) serveContactProfileInfo(w http.ResponseWriter, r *http.Request, uid tornet.IdentityFingerprint) {
 	switch r.Method {
 	case "GET":
 		// Retrieves a remote contact's profile
-		switch contact, err := api.backend.Contact(id); err {
+		switch contact, err := api.backend.Contact(uid); err {
 		case coronanet.ErrContactNotFound:
 			http.Error(w, "Remote contact doesn't exist", http.StatusNotFound)
 		case nil:
@@ -105,7 +105,7 @@ func (api *api) serveContactProfileInfo(w http.ResponseWriter, r *http.Request, 
 			http.Error(w, "Provided profile is invalid: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		switch err := api.backend.UpdateContact(id, profile.Name); err {
+		switch err := api.backend.UpdateContact(uid, profile.Name); err {
 		case coronanet.ErrContactNotFound:
 			http.Error(w, "Remote contact doesn't exist", http.StatusForbidden)
 		case nil:
@@ -120,11 +120,11 @@ func (api *api) serveContactProfileInfo(w http.ResponseWriter, r *http.Request, 
 }
 
 // serveContactProfileAvatar serves API calls concerning a remote user's profile picture.
-func (api *api) serveContactProfileAvatar(w http.ResponseWriter, r *http.Request, id string) {
+func (api *api) serveContactProfileAvatar(w http.ResponseWriter, r *http.Request, uid tornet.IdentityFingerprint) {
 	switch r.Method {
 	case "GET":
 		// Retrieves the remote contact's profile and redirect to the immutable URL
-		switch contact, err := api.backend.Contact(id); {
+		switch contact, err := api.backend.Contact(uid); {
 		case err == coronanet.ErrContactNotFound:
 			http.Error(w, "Remote contact doesn't exist", http.StatusForbidden)
 		case err == nil && contact.Avatar == [32]byte{}:

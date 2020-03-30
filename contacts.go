@@ -5,13 +5,27 @@ package coronanet
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/coronanet/go-coronanet/tornet"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 var (
 	// dbContactPrefix is the database key for storing a remote user's profile.
 	dbContactPrefix = []byte("contact-")
+
+	// ErrSelfContact is returned if a new contact is attempted to be trusted
+	// but it is the local user.
+	ErrSelfContact = errors.New("cannot contact self")
+
+	// ErrContactNotFound is returned if a new contact is attempted to be accessed
+	// but it does not exist.
+	ErrContactNotFound = errors.New("contact not found")
+
+	// ErrContactExists is returned if a new contact is attempted to be trusted
+	// but it already is trusted.
+	ErrContactExists = errors.New("contact already exists")
 )
 
 // contact represents a remote user's profile information.
@@ -22,72 +36,75 @@ type contact struct {
 
 // AddContact inserts a new remote identity into the local trust ring and adds
 // it to the overlay network.
-func (b *Backend) AddContact(id *tornet.PublicIdentity) (string, error) {
+func (b *Backend) AddContact(keyring tornet.RemoteKeyRing) (tornet.IdentityFingerprint, error) {
+	log.Info("Creating new contact", "contact", keyring.Identity.Fingerprint())
+
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
-	// Inject the security credentials into the local profile and create the profile
-	// entry for the remote user.
-	if err := b.addContact(id); err != nil {
+	// Sanity check that the contact does not exist
+	prof, err := b.Profile()
+	if err != nil {
 		return "", err
 	}
+	uid := keyring.Identity.Fingerprint()
+	if prof.KeyRing.Identity.Fingerprint() == uid {
+		return "", ErrSelfContact
+	}
+	if _, err := b.Contact(uid); err == nil {
+		return "", ErrContactExists
+	}
+	// Create the profile entry for the remote user
 	blob, err := json.Marshal(&contact{})
 	if err != nil {
 		return "", err
 	}
-	uid := id.ID()
 	if err := b.database.Put(append(dbContactPrefix, uid...), blob, nil); err != nil {
 		return "", err
 	}
-	// If the overlay network is currently online, enable networking with this user
-	if b.overlay == nil {
-		return uid, nil
-	}
-	return uid, b.overlay.Trust(uid, id)
+	// Inject the security credentials into the overlay (cascading into the profile)
+	return uid, b.overlay.Trust(keyring)
 }
 
 // DeleteContact removes the contact from the trust ring, deletes all associated
-// data and disconnects from the network.
-func (b *Backend) DeleteContact(id string) error {
+// data and disconnects any active connections.
+func (b *Backend) DeleteContact(uid tornet.IdentityFingerprint) error {
+	log.Info("Deleting contact", "contact", uid)
+
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
-	// Remove the security credentials from the local profile
-	if err := b.removeContact(id); err != nil {
-		return err
+	// Sanity check that the contact does exist
+	if _, err := b.Contact(uid); err != nil {
+		return ErrContactNotFound
 	}
 	// Break any pending connections from the overlay network
-	if b.overlay != nil {
-		if err := b.overlay.Untrust(id); err != nil {
-			return err
-		}
-	}
-	// Remove all data associated with the contact
-	if err := b.deleteContactPicture(id); err != nil {
+	if err := b.overlay.Untrust(uid); err != nil {
 		return err
 	}
-	return b.database.Delete(append(dbContactPrefix, id...), nil)
+	// Remove all data associated with the contact
+	if err := b.deleteContactPicture(uid); err != nil {
+		return err
+	}
+	return b.database.Delete(append(dbContactPrefix, uid...), nil)
 }
 
 // Contacts returns the unique ids of all the current contacts.
-func (b *Backend) Contacts() ([]string, error) {
-	b.lock.RLock()
-	defer b.lock.RUnlock()
-
+func (b *Backend) Contacts() ([]tornet.IdentityFingerprint, error) {
 	prof, err := b.Profile()
 	if err != nil {
 		return nil, ErrProfileNotFound
 	}
-	ids := make([]string, 0, len(prof.Ring))
-	for id := range prof.Ring {
-		ids = append(ids, id)
+	uids := make([]tornet.IdentityFingerprint, 0, len(prof.KeyRing.Trusted))
+	for uid := range prof.KeyRing.Trusted {
+		uids = append(uids, uid)
 	}
-	return ids, nil
+	return uids, nil
 }
 
 // Contact retrieves a remote user's profile infos.
-func (b *Backend) Contact(id string) (*contact, error) {
-	blob, err := b.database.Get(append(dbContactPrefix, id...), nil)
+func (b *Backend) Contact(uid tornet.IdentityFingerprint) (*contact, error) {
+	blob, err := b.database.Get(append(dbContactPrefix, uid...), nil)
 	if err != nil {
 		return nil, ErrContactNotFound
 	}
@@ -99,9 +116,14 @@ func (b *Backend) Contact(id string) (*contact, error) {
 }
 
 // UpdateContact overrides the profile information of an existing remote user.
-func (b *Backend) UpdateContact(id string, name string) error {
+func (b *Backend) UpdateContact(uid tornet.IdentityFingerprint, name string) error {
+	log.Info("Updating contact infos", "contact", uid, "name", name)
+
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
 	// Retrieve the current profile and abort if the update is a noop
-	info, err := b.Contact(id)
+	info, err := b.Contact(uid)
 	if err != nil {
 		return err
 	}
@@ -115,13 +137,18 @@ func (b *Backend) UpdateContact(id string, name string) error {
 	if err != nil {
 		return err
 	}
-	return b.database.Put(append(dbContactPrefix, id...), blob, nil)
+	return b.database.Put(append(dbContactPrefix, uid...), blob, nil)
 }
 
 // uploadContactPicture uploads a new local profile picture for the remote user.
-func (b *Backend) uploadContactPicture(id string, data []byte) error {
+func (b *Backend) uploadContactPicture(uid tornet.IdentityFingerprint, data []byte) error {
+	log.Info("Uploading contact picture", "contact", uid)
+
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
 	// Retrieve the current profile to ensure the user exists
-	info, err := b.Contact(id)
+	info, err := b.Contact(uid)
 	if err != nil {
 		return err
 	}
@@ -145,13 +172,18 @@ func (b *Backend) uploadContactPicture(id string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	return b.database.Put(append(dbContactPrefix, id...), blob, nil)
+	return b.database.Put(append(dbContactPrefix, uid...), blob, nil)
 }
 
 // deleteContactPicture deletes the existing local profile picture of the remote user.
-func (b *Backend) deleteContactPicture(id string) error {
+func (b *Backend) deleteContactPicture(uid tornet.IdentityFingerprint) error {
+	log.Info("Deleting contact picture", "contact", uid)
+
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
 	// Retrieve the current profile to ensure the user exists
-	info, err := b.Contact(id)
+	info, err := b.Contact(uid)
 	if err != nil {
 		return err
 	}
@@ -168,5 +200,5 @@ func (b *Backend) deleteContactPicture(id string) error {
 	if err != nil {
 		return err
 	}
-	return b.database.Put(append(dbContactPrefix, id...), blob, nil)
+	return b.database.Put(append(dbContactPrefix, uid...), blob, nil)
 }
