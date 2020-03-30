@@ -1,5 +1,5 @@
 // go-coronanet - Coronavirus social distancing network
-// Copyright (c) 2019 Péter Szilágyi. All rights reserved.
+// Copyright (c) 2020 Péter Szilágyi. All rights reserved.
 
 package tornet
 
