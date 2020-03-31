@@ -9,7 +9,7 @@ info:
     Restful API for the Corona Network decentralized social network.
 
     *The Corona Network API is not a globally accessible service, rather a server running locally on your device. The base URL is not a publicly routed domain, but rather a local one existing only on your device (and even on your device only within a process running [go-coronanet](https://github.com/coronanet/go-coronanet)).*
-  version: 0.0.3
+  version: 0.0.4
 
 externalDocs:
   description: Corona Network on GitHub
