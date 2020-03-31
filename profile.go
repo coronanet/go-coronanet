@@ -125,10 +125,7 @@ func (b *Backend) updateKeyring(keyring tornet.SecretKeyRing) {
 			panic(err)
 		}
 		// The keyring was updated, ping the scheduler to dial accordingly
-		select {
-		case b.scheduleKeyring <- keyring:
-		case <-b.scheduleTerminated:
-		}
+		b.dialer.reinit(keyring)
 	}()
 }
 
@@ -158,23 +155,12 @@ func (b *Backend) UpdateProfile(name string) error {
 		return err
 	}
 	// Propagate the update to all our contacts
-	var offline []tornet.IdentityFingerprint
-	for uid := range prof.KeyRing.Trusted {
-		if enc := b.peerset[uid]; enc != nil {
-			go enc.Encode(&coronaMessage{Profile: &corona.Profile{Name: prof.Name, Avatar: prof.Avatar}})
-		} else {
-			offline = append(offline, uid)
-		}
-	}
-	if len(offline) > 0 {
-		select {
-		case b.scheduleUpdate <- &schedulerRequest{
-			request:  schedulerProfileUpdate,
-			contacts: offline,
-		}:
-		case <-b.scheduleTerminated:
-		}
-	}
+	b.broadcast(&coronaMessage{
+		Profile: &corona.Profile{
+			Name:   prof.Name,
+			Avatar: prof.Avatar,
+		},
+	}, schedulerProfileUpdate)
 	return nil
 }
 
@@ -210,7 +196,17 @@ func (b *Backend) UploadProfilePicture(data []byte) error {
 	if err != nil {
 		return err
 	}
-	return b.database.Put(dbProfileKey, blob, nil)
+	if err := b.database.Put(dbProfileKey, blob, nil); err != nil {
+		return err
+	}
+	// Propagate the update to all our contacts
+	b.broadcast(&coronaMessage{
+		Profile: &corona.Profile{
+			Name:   prof.Name,
+			Avatar: prof.Avatar,
+		},
+	}, schedulerProfileUpdate)
+	return nil
 }
 
 // DeleteProfilePicture deletes the existing profile picture of the user.
@@ -238,5 +234,15 @@ func (b *Backend) DeleteProfilePicture() error {
 	if err != nil {
 		return err
 	}
-	return b.database.Put(dbProfileKey, blob, nil)
+	if err := b.database.Put(dbProfileKey, blob, nil); err != nil {
+		return err
+	}
+	// Propagate the update to all our contacts
+	b.broadcast(&coronaMessage{
+		Profile: &corona.Profile{
+			Name:   prof.Name,
+			Avatar: prof.Avatar,
+		},
+	}, schedulerProfileUpdate)
+	return nil
 }

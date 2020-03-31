@@ -18,11 +18,71 @@ type schedulerRequest struct {
 	contacts []tornet.IdentityFingerprint
 }
 
-// scheduler is responsible for scheduling networking data exchanges based on the
-// various priorities that events towards contacts might have.
-func (b *Backend) scheduler() {
+// scheduler is a remote connection dialer that aggregates various system and
+// user events and schedules the dialing of remote peers based on them.
+type scheduler struct {
+	backend *Backend // Backend to retrieve the overlay node from
+
+	update     chan *schedulerRequest    // Scheduler channel for app update requests
+	keyring    chan tornet.SecretKeyRing // Scheduler channel when the keyring is updated
+	teardown   chan chan struct{}        // Scheduler channel when the system is terminating
+	terminated chan struct{}             // Termination channel to unblock any schedules
+}
+
+// newScheduler creates a new dial scheduler.
+func newScheduler(backend *Backend) *scheduler {
+	dialer := &scheduler{
+		backend:    backend,
+		update:     make(chan *schedulerRequest),
+		keyring:    make(chan tornet.SecretKeyRing),
+		teardown:   make(chan chan struct{}),
+		terminated: make(chan struct{}),
+	}
+	go dialer.loop()
+	return dialer
+}
+
+// close terminates the dial scheduler.
+func (s *scheduler) close() error {
+	closer := make(chan struct{})
+	s.teardown <- closer
+	<-closer
+
+	return nil
+}
+
+// suspend sends and empty keyring to the scheduler, causing it to remove all
+// pending dial tasks.
+func (s *scheduler) suspend() {
+	select {
+	case s.keyring <- tornet.SecretKeyRing{}:
+	case <-s.terminated:
+	}
+}
+
+// reinit sends a secret keyring to the scheduler, causing it to recheck all its
+// internals, dropping anyone not in the ney keyring and scheduling new contacts.
+func (s *scheduler) reinit(keyring tornet.SecretKeyRing) {
+	select {
+	case s.keyring <- keyring:
+	case <-s.terminated:
+	}
+}
+
+// prioritize updates all the specified contacts to be dial within the requested
+// time allowance at latest. They may be dialed sooner.
+func (s *scheduler) prioritize(dial time.Duration, contacts []tornet.IdentityFingerprint) {
+	select {
+	case s.update <- &schedulerRequest{request: dial, contacts: contacts}:
+	case <-s.terminated:
+	}
+}
+
+// loop is responsible for scheduling networking data exchanges based on the various
+// priorities that events towards contacts might have.
+func (s *scheduler) loop() {
 	// If termination is requested, notify anyone listening
-	defer close(b.scheduleTerminated)
+	defer close(s.terminated)
 
 	schedule := make(map[tornet.IdentityFingerprint]time.Time)
 
@@ -52,10 +112,10 @@ func (b *Backend) scheduler() {
 		}
 		// Listen for scheduling requests or keyring updates
 		select {
-		case <-b.scheduleTeardown:
+		case <-s.teardown:
 			return
 
-		case keyring := <-b.scheduleKeyring:
+		case keyring := <-s.keyring:
 			// New keyring received. Schedule dialing any new contacts immediately,
 			// remove anyone gone missing.
 			for uid := range keyring.Trusted {
@@ -71,7 +131,7 @@ func (b *Backend) scheduler() {
 				}
 			}
 
-		case req := <-b.scheduleUpdate:
+		case req := <-s.update:
 			// Application layer requested an update to be pushed out to one or
 			// more contacts. Merge the request with the current schedule.
 			for _, uid := range req.contacts {
@@ -92,9 +152,9 @@ func (b *Backend) scheduler() {
 			nextChan = nil
 
 			// A scheduled dial was triggered, request the overlay to connect
-			b.lock.RLock()
-			overlay := b.overlay
-			b.lock.RUnlock()
+			s.backend.lock.RLock()
+			overlay := s.backend.overlay
+			s.backend.lock.RUnlock()
 
 			if overlay == nil {
 				// This can only happen if the overlay was torn down at the exact
@@ -112,5 +172,30 @@ func (b *Backend) scheduler() {
 				schedule[nextDial] = time.Now().Add(schedulerSanityRedial)
 			}
 		}
+	}
+}
+
+// broadcast tries to broadcast a message to all active peers, and for everyone
+// else it schedules a prioritized dial.
+func (b *Backend) broadcast(msg *coronaMessage, priority time.Duration) {
+	// Retrieve the list of contacts to broadcast to
+	prof, err := b.Profile()
+	if err != nil {
+		log.Error("Broadcasting without profile", "err", err)
+		return
+	}
+	// Send to everyone online, gather anyone offline
+	var offline []tornet.IdentityFingerprint
+
+	for uid := range prof.KeyRing.Trusted {
+		if enc := b.peerset[uid]; enc != nil {
+			go enc.Encode(msg)
+		} else {
+			offline = append(offline, uid)
+		}
+	}
+	// If anyone was offline, schedule it to them later
+	if len(offline) > 0 {
+		b.dialer.prioritize(priority, offline)
 	}
 }

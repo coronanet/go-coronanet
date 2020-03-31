@@ -27,14 +27,10 @@ type Backend struct {
 	network  *tor.Tor    // Proxy through the Tor network, nil when offline
 
 	overlay *tornet.Node // Overlay network running the Corona protocol
+	dialer  *scheduler   // Dial scheduler to periodically connect to peers
 	pairing *pairer      // Currently active pairing session (nil if none)
 
 	peerset map[tornet.IdentityFingerprint]*gob.Encoder // Current active connections for updates
-
-	scheduleUpdate     chan *schedulerRequest    // Scheduler channel for app update requests
-	scheduleKeyring    chan tornet.SecretKeyRing // Scheduler channel when the keyring is updated
-	scheduleTeardown   chan chan struct{}        // Scheduler channel when the system is terminating
-	scheduleTerminated chan struct{}             // Termination channel to unblock any schedules
 
 	lock sync.RWMutex
 }
@@ -60,15 +56,11 @@ func NewBackend(datadir string) (*Backend, error) {
 	}
 	// Create an idle backend; if there's already a user profile, assemble the overlay
 	backend := &Backend{
-		database:           db,
-		network:            net,
-		peerset:            make(map[tornet.IdentityFingerprint]*gob.Encoder),
-		scheduleUpdate:     make(chan *schedulerRequest),
-		scheduleKeyring:    make(chan tornet.SecretKeyRing),
-		scheduleTeardown:   make(chan chan struct{}),
-		scheduleTerminated: make(chan struct{}),
+		database: db,
+		network:  net,
+		peerset:  make(map[tornet.IdentityFingerprint]*gob.Encoder),
 	}
-	go backend.scheduler()
+	backend.dialer = newScheduler(backend)
 
 	if prof, err := backend.Profile(); err == nil {
 		if err := backend.initOverlay(*prof.KeyRing); err != nil {
@@ -115,21 +107,14 @@ func (b *Backend) nukeOverlay() error {
 	b.overlay = nil
 
 	// Since the overlay was deleted, ping the scheduler to spin down
-	select {
-	case b.scheduleKeyring <- tornet.SecretKeyRing{}:
-	case <-b.scheduleTerminated:
-	}
+	b.dialer.suspend()
 	return err
 }
 
 // Close tears down the backend. It's irreversible, it cannot be used afterwards.
 func (b *Backend) Close() error {
-	// Stop initiating any outbound connections
-	closer := make(chan struct{})
-	b.scheduleTeardown <- closer
-	<-closer
-
-	// Stop accepting any inbound connections and drop everyone
+	// Stop initiating and accepting outbound connections, drop everyone
+	b.dialer.close()
 	b.nukeOverlay()
 
 	// Disable and tear down the Tor gateway
@@ -155,10 +140,7 @@ func (b *Backend) Enable() error {
 	if err != nil {
 		return nil // No profile is fine
 	}
-	select {
-	case b.scheduleKeyring <- *prof.KeyRing:
-	case <-b.scheduleTerminated:
-	}
+	b.dialer.reinit(*prof.KeyRing)
 	return nil
 }
 
@@ -170,10 +152,7 @@ func (b *Backend) Disable() error {
 		return err
 	}
 	// Networking disabled, suspend all scheduled dials as pointless
-	select {
-	case b.scheduleKeyring <- tornet.SecretKeyRing{}:
-	case <-b.scheduleTerminated:
-	}
+	b.dialer.suspend()
 	return nil
 }
 
