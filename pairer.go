@@ -14,75 +14,106 @@ import (
 	"github.com/coronanet/go-coronanet/protocol/pairing"
 	"github.com/coronanet/go-coronanet/protocol/system"
 	"github.com/coronanet/go-coronanet/tornet"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 // pairer runs the pairing algorithm with a remote peer, hopefully at the end
 // of it resulting in a remote identity.
 type pairer struct {
-	self *tornet.PublicIdentity // Real identity to send to the remote peer
-	peer *tornet.PublicIdentity // Real identity to receive from the remote peer
+	self tornet.RemoteKeyRing // Real identity to send to the remote peer
+	peer tornet.RemoteKeyRing // Real identity to receive from the remote peer
 
-	channel  *tornet.Node  // Ephemeral pairing channel through the Tor network
-	failure  error         // Failure that occurred during the pairing exchange
-	finished chan struct{} // Notification channel when pairing finishes
+	peerset *tornet.PeerSet // Peer set handling remote connections
+	server  *tornet.Server  // Ephemeral pairing server through the Tor network
+
+	singleton chan struct{} // Guard channel to only ever allow one run
+	finished  chan struct{} // Notification channel when pairing finishes
+	failure   error         // Failure that occurred during the pairing exchange
 
 	enc *gob.Encoder // Gob encoder for sending messages
 	dec *gob.Decoder // Gob decoder for reading messages
 }
 
-// newPairingServer creates a temporary tornet running a pairing protocol and
-// attempts to exchange the real identities of two peers. Internally it creates
-// an ephemeral identity to advertise on a unique, temporary side channel.
+// newPairingServer creates a temporary tornet server running a pairing protocol
+// and attempts to exchange the real identities of two peers. Internally it creates
+// an ephemeral identity to be advertised on a unique, temporary side channel.
 //
-// The method returns a single public identity that acts as the discovery onion
-// address as well as the authentication TLS certificate for **both** the client
-// and server (essentially a shared secret). It is super unorthodox to reuse the
-// same certificate in both directions, but it avoids having to send 2 identities
+// The method returns a secret identity to authenticate with in both directions
+// and a public address to connect to. It is super unorthodox to reuse the same
+// encryption key in both directions, but it avoids having to send 2 identities
 // to the joiner (which would make QR codes quite unwieldy).
-func newPairingServer(gateway tornet.Gateway, id *tornet.PublicIdentity) (*pairer, *tornet.SecretIdentity, error) {
+func newPairingServer(gateway tornet.Gateway, self tornet.RemoteKeyRing) (*pairer, tornet.SecretIdentity, tornet.PublicAddress, error) {
 	// Pairing will be done on an ephemeral channel, create a temporary identity
 	// for it, reusing the same for both directions.
-	secret, err := tornet.GenerateIdentity()
+	identity, err := tornet.GenerateIdentity()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	// Establish a new temporary tornet to accept the pairing connection on
+	address, err := tornet.GenerateAddress()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	// Create a temporary tornet server to accept the pairing connection on
 	p := &pairer{
-		self:     id,
-		finished: make(chan struct{}),
+		self:      self,
+		singleton: make(chan struct{}, 1),
+		finished:  make(chan struct{}),
 	}
-	p.channel = tornet.New(gateway, secret, map[string]*tornet.PublicIdentity{"": secret.Public()}, p.handle)
-	if err := p.channel.StartOnlyServe(); err != nil {
-		return nil, nil, err
+	p.peerset = tornet.NewPeerSet(tornet.PeerSetConfig{
+		Trusted: []tornet.PublicIdentity{identity.Public()},
+		Handler: p.handle,
+	})
+	p.server, err = tornet.NewServer(tornet.ServerConfig{
+		Gateway:  gateway,
+		Address:  address,
+		Identity: identity,
+		PeerSet:  p.peerset,
+	})
+	if err != nil {
+		p.peerset.Close()
+		return nil, nil, nil, err
 	}
-	return p, secret, nil
+	return p, identity, address.Public(), nil
 }
 
-// newPairingClient creates a temporary tornet running a pairing protocol and
-// attempts to exchange the real identities of two peers. Internally it uses
+// newPairingClient creates a temporary tornet client running a pairing protocol
+// and attempts to exchange the real identities of two peers. Internally it uses
 // a pre-distributed ephemeral identity to connect to a temporary side channel.
-func newPairingClient(gateway tornet.Gateway, id *tornet.PublicIdentity, secret *tornet.SecretIdentity) (*pairer, error) {
+func newPairingClient(gateway tornet.Gateway, self tornet.RemoteKeyRing, identity tornet.SecretIdentity, address tornet.PublicAddress) (*pairer, error) {
 	p := &pairer{
-		self:     id,
-		finished: make(chan struct{}),
+		self:      self,
+		singleton: make(chan struct{}, 1),
+		finished:  make(chan struct{}),
 	}
-	p.channel = tornet.New(gateway, secret, map[string]*tornet.PublicIdentity{"": secret.Public()}, p.handle)
-	if err := p.channel.StartOnlyDial(); err != nil {
+	p.peerset = tornet.NewPeerSet(tornet.PeerSetConfig{
+		Trusted: []tornet.PublicIdentity{identity.Public()},
+		Handler: p.handle,
+	})
+	if err := tornet.DialServer(context.TODO(), tornet.DialConfig{
+		Gateway:  gateway,
+		Address:  address,
+		Server:   identity.Public(),
+		Identity: identity,
+		PeerSet:  p.peerset,
+	}); err != nil {
+		p.peerset.Close()
 		return nil, err
 	}
 	return p, nil
 }
 
 // wait blocks until the pairing is done or the context is cancelled.
-func (p *pairer) wait(ctx context.Context) (*tornet.PublicIdentity, error) {
-	defer p.channel.Stop()
-
+func (p *pairer) wait(ctx context.Context) (tornet.RemoteKeyRing, error) {
+	defer p.peerset.Close()
+	if p.server != nil {
+		defer p.server.Close()
+	}
 	select {
 	case <-ctx.Done():
-		return nil, errors.New("context cancelled")
+		return tornet.RemoteKeyRing{}, errors.New("context cancelled")
 	case <-p.finished:
 		if p.failure != nil {
-			return nil, p.failure
+			return tornet.RemoteKeyRing{}, p.failure
 		}
 		return p.peer, nil
 	}
@@ -91,24 +122,29 @@ func (p *pairer) wait(ctx context.Context) (*tornet.PublicIdentity, error) {
 // handle is the handler for the pairing protocol.
 //
 // See: https://github.com/coronanet/go-coronanet/blob/master/spec/wire.md
-func (p *pairer) handle(id string, conn net.Conn) (err error) {
-	// If the pairing already finished, reject the peer
+func (p *pairer) handle(uid tornet.IdentityFingerprint, conn net.Conn) {
+	// Create a logger to track what's going on
+	logger := log.New("pairer", uid)
+	logger.Info("Pairer connected")
+
+	// If the pairing already in progress, reject additional peers
 	select {
+	case p.singleton <- struct{}{}:
+		// Singleton lock received, everyone's happy
 	case <-p.finished:
-		return errors.New("already paired")
+		log.Error("Pairing session already finished")
+		return
 	default:
+		log.Error("Pairing session already in progress")
+		return
 	}
+	// No matter what happens, mark the pairer finished after this point
+	defer close(p.finished)
+
 	// Create the gob encoder and decoder
 	p.enc = gob.NewEncoder(conn)
 	p.dec = gob.NewDecoder(conn)
 
-	// Make sure the connection is torn down but send any errors
-	defer func() {
-		if err != nil {
-			p.failure = err
-		}
-		close(p.finished)
-	}()
 	// All protocols start with a system handshake, send ours, read theirs
 	errc := make(chan error, 2)
 	go func() {
@@ -125,15 +161,18 @@ func (p *pairer) handle(id string, conn net.Conn) (err error) {
 		select {
 		case err := <-errc:
 			if err != nil {
-				return err
+				p.failure = err
+				return
 			}
 		case <-timeout.C:
-			return errors.New("handshake timed out")
+			p.failure = errors.New("handshake timed out")
+			return
 		}
 	}
 	// Find the common protocol, abort otherwise
 	if handshake.Protocol != pairing.Protocol {
-		return fmt.Errorf("unexpected pairing protocol: %s", handshake.Protocol)
+		p.failure = fmt.Errorf("unexpected pairing protocol: %s", handshake.Protocol)
+		return
 	}
 	var version uint
 	for _, v := range handshake.Versions {
@@ -143,12 +182,13 @@ func (p *pairer) handle(id string, conn net.Conn) (err error) {
 		}
 	}
 	if version == 0 {
-		return fmt.Errorf("no common protocol version: %v vs %v", []uint{1}, handshake.Protocol)
+		p.failure = fmt.Errorf("no common protocol version: %v vs %v", []uint{1}, handshake.Protocol)
+		return
 	}
 	// Yay, handshake completed, run requested version
 	switch version {
 	case 1:
-		return p.handleV1()
+		p.failure = p.handleV1()
 	default:
 		panic(fmt.Sprintf("unhandled pairing protocol version: %d", version))
 	}
@@ -158,14 +198,10 @@ func (p *pairer) handle(id string, conn net.Conn) (err error) {
 //
 // See: https://github.com/coronanet/go-coronanet/blob/master/spec/wire.md
 func (p *pairer) handleV1() error {
-	blob, err := p.self.MarshalJSON()
-	if err != nil {
-		panic(err)
-	}
 	// Send out identity, read theirs
 	errc := make(chan error, 2)
 	go func() {
-		errc <- p.enc.Encode(&pairing.Identity{Blob: blob})
+		errc <- p.enc.Encode(&pairing.Identity{Blob: append(p.self.Identity, p.self.Address...)})
 	}()
 	identity := new(pairing.Identity)
 	go func() {
@@ -185,10 +221,12 @@ func (p *pairer) handleV1() error {
 		}
 	}
 	// Decode the received identity and return
-	id := new(tornet.PublicIdentity)
-	if err := id.UnmarshalJSON(identity.Blob); err != nil {
-		return err
+	if len(identity.Blob) != len(p.self.Identity)+len(p.self.Address) {
+		return fmt.Errorf("invalid response length: %d", len(identity.Blob))
 	}
-	p.peer = id
+	p.peer = tornet.RemoteKeyRing{
+		Identity: identity.Blob[:len(p.self.Identity)],
+		Address:  identity.Blob[len(p.self.Identity):],
+	}
 	return nil
 }

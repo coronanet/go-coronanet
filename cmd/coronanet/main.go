@@ -34,5 +34,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	defer backend.Close()
+
 	http.ListenAndServe(fmt.Sprintf("localhost:%d", *apiportFlag), rest.New(backend))
 }

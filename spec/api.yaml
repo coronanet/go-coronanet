@@ -63,8 +63,6 @@ paths:
       tags:
         - Gateway
       responses:
-        403:
-          description: Cannot join the Corona Network without a local user
         200:
           description: Network connection will be established async and actively maintained
     delete:

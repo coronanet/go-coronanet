@@ -8,6 +8,7 @@ import (
 	"errors"
 
 	"github.com/coronanet/go-coronanet/tornet"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 var (
@@ -25,62 +26,67 @@ var (
 )
 
 // InitPairing initiates a new pairing session over Tor.
-func (b *Backend) InitPairing() (*tornet.SecretIdentity, error) {
+func (b *Backend) InitPairing() (tornet.SecretIdentity, tornet.PublicAddress, error) {
+	log.Info("Initiating pairing session")
+
 	// Ensure there is no pairing session ongoing
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
-	if b.overlay == nil {
-		return nil, ErrNetworkDisabled
-	}
 	if b.pairing != nil {
-		return nil, ErrAlreadyPairing
+		return nil, nil, ErrAlreadyPairing
 	}
 	// No pairing session running, create a new one
 	prof, err := b.Profile()
 	if err != nil {
 		panic(err) // Overlay cannot exist without a profile
 	}
-	pairer, secret, err := newPairingServer(tornet.NewTorGateway(b.network), prof.Key.Public())
+	keyring := tornet.RemoteKeyRing{
+		Identity: prof.KeyRing.Identity.Public(),
+		Address:  prof.KeyRing.Addresses[len(prof.KeyRing.Addresses)-1].Public(),
+	}
+	pairer, secret, address, err := newPairingServer(tornet.NewTorGateway(b.network), keyring)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	b.pairing = pairer
-	return secret, nil
+	return secret, address, nil
 }
 
 // WaitPairing blocks until an already initiated pairing session is joined.
-func (b *Backend) WaitPairing() (*tornet.PublicIdentity, error) {
+func (b *Backend) WaitPairing() (tornet.RemoteKeyRing, error) {
+	log.Info("Waiting for pairing session")
+
 	// Ensure there is a pairing session ongoing
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
 	if b.pairing == nil {
-		return nil, ErrNotPairing
+		return tornet.RemoteKeyRing{}, ErrNotPairing
 	}
 	// Pairing session in progress, wait for it and tear it down
-	id, err := b.pairing.wait(context.TODO())
+	keyring, err := b.pairing.wait(context.TODO())
 	b.pairing = nil
-	return id, err
+	return keyring, err
 }
 
 // JoinPairing joins a remotely initiated pairing session.
-func (b *Backend) JoinPairing(secret *tornet.SecretIdentity) (*tornet.PublicIdentity, error) {
-	// Ensure we are in a pairable state
-	b.lock.RLock()
-	defer b.lock.RUnlock()
+func (b *Backend) JoinPairing(secret tornet.SecretIdentity, address tornet.PublicAddress) (tornet.RemoteKeyRing, error) {
+	log.Info("Joining pairing session", "address", address.Fingerprint(), "identity", secret.Fingerprint())
 
-	if b.overlay == nil {
-		return nil, ErrNetworkDisabled
-	}
+	// Ensure we are in a pairable state
 	prof, err := b.Profile()
 	if err != nil {
 		panic(err) // Overlay cannot exist without a profile
 	}
 	// Join the remote pairing session and return the results
-	pairer, err := newPairingClient(tornet.NewTorGateway(b.network), prof.Key.Public(), secret)
+	keyring := tornet.RemoteKeyRing{
+		Identity: prof.KeyRing.Identity.Public(),
+		Address:  prof.KeyRing.Addresses[len(prof.KeyRing.Addresses)-1].Public(),
+	}
+	pairer, err := newPairingClient(tornet.NewTorGateway(b.network), keyring, secret, address)
 	if err != nil {
-		return nil, err
+		return tornet.RemoteKeyRing{}, err
 	}
 	return pairer.wait(context.TODO())
 }

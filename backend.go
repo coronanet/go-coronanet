@@ -5,6 +5,7 @@ package coronanet
 
 import (
 	"context"
+	"encoding/gob"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"github.com/coronanet/go-coronanet/tornet"
 	"github.com/cretz/bine/control"
 	"github.com/cretz/bine/tor"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ipsn/go-libtor"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
@@ -26,6 +28,13 @@ type Backend struct {
 
 	overlay *tornet.Node // Overlay network running the Corona protocol
 	pairing *pairer      // Currently active pairing session (nil if none)
+
+	peerset map[tornet.IdentityFingerprint]*gob.Encoder // Current active connections for updates
+
+	scheduleUpdate     chan *schedulerRequest    // Scheduler channel for app update requests
+	scheduleKeyring    chan tornet.SecretKeyRing // Scheduler channel when the keyring is updated
+	scheduleTeardown   chan chan struct{}        // Scheduler channel when the system is terminating
+	scheduleTerminated chan struct{}             // Termination channel to unblock any schedules
 
 	lock sync.RWMutex
 }
@@ -49,61 +58,121 @@ func NewBackend(datadir string) (*Backend, error) {
 		db.Close()
 		return nil, err
 	}
-	// All good, return the idle backend
-	return &Backend{
-		database: db,
-		network:  net,
-	}, nil
+	// Create an idle backend; if there's already a user profile, assemble the overlay
+	backend := &Backend{
+		database:           db,
+		network:            net,
+		peerset:            make(map[tornet.IdentityFingerprint]*gob.Encoder),
+		scheduleUpdate:     make(chan *schedulerRequest),
+		scheduleKeyring:    make(chan tornet.SecretKeyRing),
+		scheduleTeardown:   make(chan chan struct{}),
+		scheduleTerminated: make(chan struct{}),
+	}
+	go backend.scheduler()
+
+	if prof, err := backend.Profile(); err == nil {
+		if err := backend.initOverlay(*prof.KeyRing); err != nil {
+			net.Close()
+			db.Close()
+			return nil, err
+		}
+	}
+	return backend, nil
 }
 
-// Enable opens up the network proxy into the Tor network and starts building
-// out the P2P overlay network on top. The method is async.
-func (b *Backend) Enable() error {
-	// Ensure the node is not yet enabled
-	b.lock.Lock()
-	defer b.lock.Unlock()
-
+// initOverlay initializes the cryptographic tornet overlay on top of the existing
+// Tor gateway according to the keyring in profile.
+//
+// Note, this method assumes the write lock is held.
+func (b *Backend) initOverlay(keyring tornet.SecretKeyRing) error {
+	log.Info("Creating overlay node", "addresses", len(keyring.Addresses), "contacts", len(keyring.Trusted))
 	if b.overlay != nil {
-		return nil
+		panic("overlay double initialized")
 	}
-	// Ensure we have a crypto profile available
-	prof, err := b.Profile()
+	overlay, err := tornet.NewNode(tornet.NodeConfig{
+		Gateway:     tornet.NewTorGateway(b.network),
+		KeyRing:     keyring,
+		RingHandler: b.updateKeyring,
+		ConnHandler: b.handleContact,
+		ConnTimeout: connectionIdleTimeout,
+	})
 	if err != nil {
-		return err
-	}
-	// Enable the network asynchronously to avoid blocking if something funky
-	// happens (or we don't have internet) and assemble the overlay on top
-	if err := b.network.EnableNetwork(context.Background(), false); err != nil {
-		return nil
-	}
-	overlay := tornet.New(tornet.NewTorGateway(b.network), prof.Key, prof.Ring, b.handleContact)
-	if err := overlay.Start(); err != nil {
-		// Something went wrong, tear down the Tor circuits. TODO(karalabe): upstream as `b.network.DisableNetwork`?
-		if err := b.network.Control.SetConf(control.KeyVals("DisableNetwork", "1")...); err != nil {
-			panic(err)
-		}
 		return err
 	}
 	b.overlay = overlay
 	return nil
 }
 
-// Disable tears down the P2P overlay network running on top of Tor, breaks all
-// active connections and closes off he network proxy from Tor.
-func (b *Backend) Disable() error {
-	// Ensure the node is not yet disabled
-	b.lock.Lock()
-	defer b.lock.Unlock()
-
+// nukeOverlay tears down the entire overlay network built on top of Tor.
+//
+// Note, this method assumes the write lock is held.
+func (b *Backend) nukeOverlay() error {
+	log.Info("Deleting overlay node")
 	if b.overlay == nil {
 		return nil
 	}
-	// Terminate the P2P overlay and disconnect from Tor
-	b.overlay.Stop()
+	err := b.overlay.Close()
 	b.overlay = nil
 
+	// Since the overlay was deleted, ping the scheduler to spin down
+	select {
+	case b.scheduleKeyring <- tornet.SecretKeyRing{}:
+	case <-b.scheduleTerminated:
+	}
+	return err
+}
+
+// Close tears down the backend. It's irreversible, it cannot be used afterwards.
+func (b *Backend) Close() error {
+	// Stop initiating any outbound connections
+	closer := make(chan struct{})
+	b.scheduleTeardown <- closer
+	<-closer
+
+	// Stop accepting any inbound connections and drop everyone
+	b.nukeOverlay()
+
+	// Disable and tear down the Tor gateway
+	b.network.Close()
+	b.network = nil
+
+	// Close the database and return
+	b.database.Close()
+	b.database = nil
+
+	return nil
+}
+
+// Enable opens up the network proxy into the Tor network and starts building
+// out the P2P overlay network on top. The method is async.
+func (b *Backend) Enable() error {
+	log.Info("Enabling gateway networking")
+	if err := b.network.EnableNetwork(context.Background(), false); err != nil {
+		return err
+	}
+	// Networking enabled, resume all scheduled dials
+	prof, err := b.Profile()
+	if err != nil {
+		return nil // No profile is fine
+	}
+	select {
+	case b.scheduleKeyring <- *prof.KeyRing:
+	case <-b.scheduleTerminated:
+	}
+	return nil
+}
+
+// Disable tears down the P2P overlay network running on top of Tor, breaks all
+// active connections and closes off he network proxy from Tor.
+func (b *Backend) Disable() error {
+	log.Info("Disabling gateway networking")
 	if err := b.network.Control.SetConf(control.KeyVals("DisableNetwork", "1")...); err != nil {
-		panic(err)
+		return err
+	}
+	// Networking disabled, suspend all scheduled dials as pointless
+	select {
+	case b.scheduleKeyring <- tornet.SecretKeyRing{}:
+	case <-b.scheduleTerminated:
 	}
 	return nil
 }
