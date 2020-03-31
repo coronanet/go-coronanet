@@ -5,10 +5,18 @@
 package bridge
 
 import (
+	"os"
+
 	"github.com/coronanet/go-coronanet"
 	"github.com/coronanet/go-coronanet/rest"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ipsn/go-ghostbridge"
 )
+
+// Push all the logs out to Android's logcat.
+func init() {
+	log.Root().SetHandler(log.LvlFilterHandler(5, log.StreamHandler(os.Stderr, log.TerminalFormat(false))))
+}
 
 // Bridge is a tiny struct (re)definition so gomobile will export all the built
 // in methods of the underlying ghostbridge.Bridge struct.
