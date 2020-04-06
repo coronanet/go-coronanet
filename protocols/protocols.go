@@ -1,8 +1,8 @@
 // go-coronanet - Coronavirus social distancing network
 // Copyright (c) 2020 Péter Szilágyi. All rights reserved.
 
-// Package system defines the messages for the base system protocol.
-package system
+// Package protocols defines the messages common for all protocols.
+package protocols
 
 // Handshake represents the initial protocol version negotiation.
 type Handshake struct {
@@ -14,6 +14,3 @@ type Handshake struct {
 type Disconnect struct {
 	Reason string // Textual disconnect reason, meant for developers
 }
-
-// Heartbeat is a notification that the client is still alive.
-type Heartbeat struct{}

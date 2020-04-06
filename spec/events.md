@@ -43,9 +43,8 @@ The purpose of the `event` protocol is to act as the communication ruleset betwe
 The envelope is:
 
 ```go
-// EventsMessage contains all possible messages sent and received.
-type EventsMessage struct {
-	Handshake  *system.Handshake
+// Envelope contains all possible messages sent and received.
+type Envelope struct {
 	Disconnect *system.Disconnect
 	Checkin    *events.Checkin
 	CheckinAck *events.CheckinAck

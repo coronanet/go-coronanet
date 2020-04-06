@@ -9,7 +9,7 @@ info:
     Restful API for the Corona Network decentralized social network.
 
     *The Corona Network API is not a globally accessible service, rather a server running locally on your device. The base URL is not a publicly routed domain, but rather a local one existing only on your device (and even on your device only within a process running [go-coronanet](https://github.com/coronanet/go-coronanet)).*
-  version: 0.0.4
+  version: 0.0.5
 
 externalDocs:
   description: Corona Network on GitHub
@@ -150,6 +150,44 @@ paths:
           description: Local user doesn't exist
         200:
           description: Successfully deleted the local user's profile picture
+
+  /profile/updates:
+    get:
+      summary: Retrieves the local user's status updates
+      tags:
+        - Profile
+      parameters:
+        - name: before
+          in: query
+          description: Unix timestamp to return updates from
+          schema:
+            type: number
+        - name: limit
+          in: query
+          description: Number of status updates to return
+          schema:
+            type: number
+      responses:
+        403:
+          description: Local user doesn't exist
+        200:
+          $ref: '#/components/responses/Statuses'
+    post:
+      summary: Updates the local user's infection status
+      tags:
+        - Profile
+      requestBody:
+        description: New status of the current user
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Status'
+      responses:
+        403:
+          description: Local user doesn't exist
+        200:
+          description: User status updated
 
   /pairing:
     post:
@@ -294,11 +332,40 @@ paths:
         - Contacts
       responses:
         403:
-          description: Local user doesn't exist
+          description: Remote contact doesn't exist
         404:
-          description: Remote contact is unknown
+          description: Remote contact doesn't have a profile picture
         302:
           $ref: '#/components/responses/Avatar'
+
+  /contacts/{id}/profile/updates:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Globally unique identifier of contact
+        schema:
+          type: string
+    get:
+      summary: Retrieves a remote contact's status updates
+      tags:
+        - Contacts
+      parameters:
+        - name: before
+          in: query
+          description: Unix timestamp to return updates from
+          schema:
+            type: number
+        - name: limit
+          in: query
+          description: Number of status updates to return
+          schema:
+            type: number
+      responses:
+        403:
+          description: Remote contact doesn't exist
+        200:
+          $ref: '#/components/responses/Statuses'
 
   /cdn/images/{sha3}:
     get:
@@ -333,6 +400,18 @@ components:
         name:
           type: string
           description: Full name of the user
+    Status:
+      type: object
+      properties:
+        infecton:
+          type: string
+          description: Infection status (negative, positive, suspect)
+        message:
+          type: string
+          description: Personal message attached to the status update
+        time:
+          type: number
+          description: Unix timestamp when the status was posted
 
   requestBodies:
     Avatar:
@@ -351,7 +430,6 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Profile'
-
     Avatar:
       description: Redirect to immutable image
       content:
@@ -359,3 +437,11 @@ components:
           schema:
             type: string
             format: binary
+    Statuses:
+      description: Returns the requested status updates
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/Status'

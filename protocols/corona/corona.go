@@ -4,8 +4,22 @@
 // Package corona defines the messages for the main corona protocol.
 package corona
 
+import (
+	"github.com/coronanet/go-coronanet/protocols"
+)
+
 // Protocol is the unique identifier of the corona protocol.
 const Protocol = "corona"
+
+// Envelope is an envelope containing all possible messages received through
+// the Corona Network wire protocol.
+type Envelope struct {
+	Disconnect *protocols.Disconnect
+	GetProfile *GetProfile
+	Profile    *Profile
+	GetAvatar  *GetAvatar
+	Avatar     *Avatar
+}
 
 // GetProfile requests the remote user's profile summary.
 type GetProfile struct{}

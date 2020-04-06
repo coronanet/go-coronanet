@@ -15,8 +15,8 @@ The wire format is a Gob message protocol ([`encoding/gob`](https://golang.org/p
 Since a `gob` stream needs to know in advance what data type to unmarshal into, we can't use the usual protocol message parsing logic of checking a message code and then switching on it. Instead, we create a master packet (envelope) that contains an instance of every possible message within it. Gob will be smart and not transmit `nil` pointers, so this approach is not wasteful.
 
 ```go
-// CoronaMessage contains all possible messages received.
-type CoronaMessage struct {
+// Envelope contains all possible messages received.
+type Envelope struct {
 	Handshake  *system.Handshake
 	Disconnect *system.Disconnect
 	GetProfile *corona.GetProfile
@@ -25,8 +25,6 @@ type CoronaMessage struct {
 	Avatar     *corona.Avatar
 }
 ```
-
-The above envelope is for the Corona protocol. A similar one is used for the Pairing protocol, just with the `corona` messages swapped out for the `pairing` ones.
 
 ## System Protocol
 
@@ -98,20 +96,3 @@ type Avatar struct {
 ```
 
 *It is the callers sole discretion when it requests the profile / avatar from a remote connection. It might request it only after pairing and never again; it might do it once per connection; or maybe even periodically.*
-
-## Pairing Protocol v1 (draft)
-
-The pairing protocol is a support mechanism disjoint from the main peer-to-peer protocol. It's purpose is to be an out-of-bounds secret-exchange between two nodes so they can share their identities and join each other on the main protocol.
-
-The protocol is overly simplistic because the underlying stream layer already provides authentication. As only public key exchange is needed in both directions, and nothing else, peers can just announce their data and disconnect afterwards.
-
-```go
-// Identity sends the user's Corona protocol P2P identity.
-type Identity struct {
-	Blob []byte // Encoded tornet public identity, internal format
-}
-```
-
-Notes:
-
-- The `v1` pairing protocol is overly simplistic for prototyping reasons. Future versions need to implement some profile exchange and confirmation too to ensure that you are talking to the correct person **before** trusting them with access to your (public) keys.

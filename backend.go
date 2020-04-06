@@ -11,6 +11,9 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/coronanet/go-coronanet/protocols"
+	"github.com/coronanet/go-coronanet/protocols/corona"
+	"github.com/coronanet/go-coronanet/protocols/pairing"
 	"github.com/coronanet/go-coronanet/tornet"
 	"github.com/cretz/bine/control"
 	"github.com/cretz/bine/tor"
@@ -26,9 +29,9 @@ type Backend struct {
 	database *leveldb.DB // Database to avoid custom file formats for storage
 	network  *tor.Tor    // Proxy through the Tor network, nil when offline
 
-	overlay *tornet.Node // Overlay network running the Corona protocol
-	dialer  *scheduler   // Dial scheduler to periodically connect to peers
-	pairing *pairer      // Currently active pairing session (nil if none)
+	overlay *tornet.Node     // Overlay network running the Corona protocol
+	dialer  *scheduler       // Dial scheduler to periodically connect to peers
+	pairing *pairing.Pairing // Currently active pairing session (nil if none)
 
 	peerset map[tornet.IdentityFingerprint]*gob.Encoder // Current active connections for updates
 
@@ -85,7 +88,12 @@ func (b *Backend) initOverlay(keyring tornet.SecretKeyRing) error {
 		Gateway:     tornet.NewTorGateway(b.network),
 		KeyRing:     keyring,
 		RingHandler: b.updateKeyring,
-		ConnHandler: b.handleContact,
+		ConnHandler: protocols.MakeHandler(protocols.HandlerConfig{
+			Protocol: corona.Protocol,
+			Handlers: map[uint]protocols.Handler{
+				1: b.handleContactV1,
+			},
+		}),
 		ConnTimeout: connectionIdleTimeout,
 	})
 	if err != nil {
