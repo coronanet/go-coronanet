@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/coronanet/go-coronanet/protocol/corona"
+	"github.com/coronanet/go-coronanet/protocols/corona"
 	"github.com/coronanet/go-coronanet/tornet"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/syndtr/goleveldb/leveldb/util"
@@ -155,7 +155,7 @@ func (b *Backend) UpdateProfile(name string) error {
 		return err
 	}
 	// Propagate the update to all our contacts
-	b.broadcast(&coronaMessage{
+	b.broadcast(&corona.Envelope{
 		Profile: &corona.Profile{
 			Name:   prof.Name,
 			Avatar: prof.Avatar,
@@ -200,7 +200,7 @@ func (b *Backend) UploadProfilePicture(data []byte) error {
 		return err
 	}
 	// Propagate the update to all our contacts
-	b.broadcast(&coronaMessage{
+	b.broadcast(&corona.Envelope{
 		Profile: &corona.Profile{
 			Name:   prof.Name,
 			Avatar: prof.Avatar,
@@ -238,7 +238,7 @@ func (b *Backend) DeleteProfilePicture() error {
 		return err
 	}
 	// Propagate the update to all our contacts
-	b.broadcast(&coronaMessage{
+	b.broadcast(&corona.Envelope{
 		Profile: &corona.Profile{
 			Name:   prof.Name,
 			Avatar: prof.Avatar,

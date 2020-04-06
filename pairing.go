@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/coronanet/go-coronanet/protocols/pairing"
 	"github.com/coronanet/go-coronanet/tornet"
 	"github.com/ethereum/go-ethereum/log"
 )
@@ -45,7 +46,7 @@ func (b *Backend) InitPairing() (tornet.SecretIdentity, tornet.PublicAddress, er
 		Identity: prof.KeyRing.Identity.Public(),
 		Address:  prof.KeyRing.Addresses[len(prof.KeyRing.Addresses)-1].Public(),
 	}
-	pairer, secret, address, err := newPairingServer(tornet.NewTorGateway(b.network), keyring)
+	pairer, secret, address, err := pairing.NewServer(tornet.NewTorGateway(b.network), keyring)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -65,7 +66,7 @@ func (b *Backend) WaitPairing() (tornet.RemoteKeyRing, error) {
 		return tornet.RemoteKeyRing{}, ErrNotPairing
 	}
 	// Pairing session in progress, wait for it and tear it down
-	keyring, err := b.pairing.wait(context.TODO())
+	keyring, err := b.pairing.Wait(context.TODO())
 	b.pairing = nil
 	return keyring, err
 }
@@ -84,9 +85,9 @@ func (b *Backend) JoinPairing(secret tornet.SecretIdentity, address tornet.Publi
 		Identity: prof.KeyRing.Identity.Public(),
 		Address:  prof.KeyRing.Addresses[len(prof.KeyRing.Addresses)-1].Public(),
 	}
-	pairer, err := newPairingClient(tornet.NewTorGateway(b.network), keyring, secret, address)
+	pairer, err := pairing.NewClient(tornet.NewTorGateway(b.network), keyring, secret, address)
 	if err != nil {
 		return tornet.RemoteKeyRing{}, err
 	}
-	return pairer.wait(context.TODO())
+	return pairer.Wait(context.TODO())
 }

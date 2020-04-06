@@ -7,6 +7,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/coronanet/go-coronanet/protocols/corona"
 	"github.com/coronanet/go-coronanet/tornet"
 	"github.com/ethereum/go-ethereum/log"
 )
@@ -177,7 +178,7 @@ func (s *scheduler) loop() {
 
 // broadcast tries to broadcast a message to all active peers, and for everyone
 // else it schedules a prioritized dial.
-func (b *Backend) broadcast(msg *coronaMessage, priority time.Duration) {
+func (b *Backend) broadcast(message *corona.Envelope, priority time.Duration) {
 	// Retrieve the list of contacts to broadcast to
 	prof, err := b.Profile()
 	if err != nil {
@@ -189,7 +190,7 @@ func (b *Backend) broadcast(msg *coronaMessage, priority time.Duration) {
 
 	for uid := range prof.KeyRing.Trusted {
 		if enc := b.peerset[uid]; enc != nil {
-			go enc.Encode(msg)
+			go enc.Encode(message)
 		} else {
 			offline = append(offline, uid)
 		}

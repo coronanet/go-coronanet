@@ -1,7 +1,7 @@
 // go-coronanet - Coronavirus social distancing network
 // Copyright (c) 2020 Péter Szilágyi. All rights reserved.
 
-package coronanet
+package pairing
 
 import (
 	"bytes"
@@ -28,20 +28,20 @@ func TestPairing(t *testing.T) {
 	// Initiate a pairing session and join it with the other identity
 	gateway := tornet.NewMockGateway()
 
-	initPairer, secret, address, err := newPairingServer(gateway, initRemote)
+	initPairing, secret, address, err := NewServer(gateway, initRemote)
 	if err != nil {
 		t.Fatalf("failed to initiate pairing: %v", err)
 	}
-	joinPairer, err := newPairingClient(gateway, joinRemote, secret, address)
+	joinPairing, err := NewClient(gateway, joinRemote, secret, address)
 	if err != nil {
 		t.Fatalf("failed to join pairing: %v", err)
 	}
 	// Wait for both to finish
-	joinPub, err := initPairer.wait(context.TODO())
+	joinPub, err := initPairing.Wait(context.TODO())
 	if err != nil {
 		t.Fatalf("server side pairing failed: %v", err)
 	}
-	initPub, err := joinPairer.wait(context.TODO())
+	initPub, err := joinPairing.Wait(context.TODO())
 	if err != nil {
 		t.Fatalf("client side pairing failed: %v", err)
 	}
