@@ -107,13 +107,16 @@ func (n *Node) Close() error {
 }
 
 // Dial requests the node to connect to an already configured remote peer.
-func (n *Node) Dial(ctx context.Context, id IdentityFingerprint) error {
+//
+// Since the handshake is async, a failure cannot be immediately returned. Instead,
+// an error channel is returned which will get sent any failure after dialing.
+func (n *Node) Dial(ctx context.Context, id IdentityFingerprint) (chan error, error) {
 	// Retrieve the keyring of the requested peer and fail if unknown
 	n.lock.RLock()
 	keyring, ok := n.keyring.Trusted[id]
 	if !ok {
 		n.lock.RUnlock()
-		return errors.New("unknown identity")
+		return nil, errors.New("unknown identity")
 	}
 	n.lock.RUnlock()
 

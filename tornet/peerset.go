@@ -77,13 +77,14 @@ func (ps *PeerSet) Close() error {
 // handle is responsible for doing the authentication handshake with a remote
 // peer, and if passed, to establish a persistent data stream until it's torn
 // down or breaks.
-func (ps *PeerSet) handle(conn net.Conn) {
+func (ps *PeerSet) handle(conn net.Conn, done chan error) {
 	// Make sure the connection is torn down, whatever happens
 	defer conn.Close()
 
 	// Before doing anything, run the TLS handshake
 	if err := conn.(*tls.Conn).Handshake(); err != nil {
 		log.Warn("Remote connection failed authentication", "err", err)
+		done <- err
 		return
 	}
 	// Retrieve the peer certificate and deduplicate connections
@@ -99,11 +100,13 @@ func (ps *PeerSet) handle(conn net.Conn) {
 		// of the package.
 		logger.Error("Connection accepted but peer not trusted")
 		ps.lock.Unlock()
+		done <- errors.New("untrusted connection")
 		return
 	}
 	if _, ok := ps.conns[uid]; ok {
 		logger.Debug("New peer connection deduplicated")
 		ps.lock.Unlock()
+		done <- errors.New("duplicate connection")
 		return
 	}
 	logger.Debug("New peer connection established")
@@ -137,11 +140,13 @@ func (ps *PeerSet) handle(conn net.Conn) {
 	for i := 0; i < 2; i++ {
 		if err := <-errc; err != nil {
 			logger.Warn("Protocol validation failed", "err", err)
+			done <- err
 			return
 		}
 	}
 	if string(helo) != protocolMagic {
 		logger.Warn("Protocol magic mismatch", "magic", helo)
+		done <- errors.New("magic mismatch")
 		return
 	}
 	conn.SetDeadline(time.Time{})
@@ -151,6 +156,7 @@ func (ps *PeerSet) handle(conn net.Conn) {
 		conn = newBreaker(conn, ps.timeout)
 	}
 	ps.handler(uid, conn)
+	done <- nil
 }
 
 // Trust adds a new public identity into the set of trusted peers.

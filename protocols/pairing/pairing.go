@@ -96,7 +96,8 @@ func NewClient(gateway tornet.Gateway, self tornet.RemoteKeyRing, identity torne
 			},
 		}),
 	})
-	if err := tornet.DialServer(context.TODO(), tornet.DialConfig{
+	// TODO(karalabe): Maybe also watch for handshake errors instead of waiting for a timeout
+	if _, err := tornet.DialServer(context.TODO(), tornet.DialConfig{
 		Gateway:  gateway,
 		Address:  address,
 		Server:   identity.Public(),

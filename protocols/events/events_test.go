@@ -67,7 +67,7 @@ func TestCheckin(t *testing.T) {
 		host    = newTestHost()
 		guest   = newTestGuest()
 	)
-	// Create the new event server
+	// Create an event server to check into
 	server, err := CreateServer(host, gateway, "barbecue", []byte("steak.jpg"))
 	if err != nil {
 		t.Fatalf("failed to create event server: %v", err)
@@ -114,4 +114,97 @@ func TestCheckin(t *testing.T) {
 	if clientInfos.Positives != 0 {
 		t.Errorf("event positives count mismatch: have %d, want %d", clientInfos.Positives, 0)
 	}
+}
+
+// Tests that once an authentication credential is used up for checking in, no
+// subsequent connections can be made with it.
+func TestDuplicateCheckin(t *testing.T) {
+	var (
+		gateway = tornet.NewMockGateway()
+		host    = newTestHost()
+		guest   = newTestGuest()
+	)
+	// Create an event server to check into
+	server, err := CreateServer(host, gateway, "barbecue", []byte("steak.jpg"))
+	if err != nil {
+		t.Fatalf("failed to create event server: %v", err)
+	}
+	defer server.Close()
+
+	host.event = server
+	close(host.inited)
+
+	// Attach to the server with an event client
+	checkin := server.checkin // save for duplication attack
+
+	client, err := CreateClient(guest, gateway, server.infos.Identity.Public(), server.infos.Address.Public(), checkin)
+	if err != nil {
+		t.Fatalf("failed to create event client: %v", err)
+	}
+	defer client.Close()
+
+	guest.event = client
+	close(guest.inited)
+
+	// Consume the server and client events to ensure nothing's left in the system
+	<-host.update
+	<-guest.update
+	<-guest.update
+
+	// Attempt to connect with a malicious guest reusing the same auth credentials
+	if _, err := CreateClient(newTestGuest(), gateway, server.infos.Identity.Public(), server.infos.Address.Public(), checkin); err == nil {
+		t.Fatalf("duplicate checkin permitted")
+	}
+}
+
+// Tests that once an authentication credential is used up for checking in, a new
+// one is generated in its place which can be used to check in.
+func TestSubsequentCheckin(t *testing.T) {
+	var (
+		gateway = tornet.NewMockGateway()
+		host    = newTestHost()
+	)
+	// Create an event server to check into
+	server, err := CreateServer(host, gateway, "barbecue", []byte("steak.jpg"))
+	if err != nil {
+		t.Fatalf("failed to create event server: %v", err)
+	}
+	defer server.Close()
+
+	host.event = server
+	close(host.inited)
+
+	// Attach to the server with an event client
+	firstGuest := newTestGuest()
+
+	firstClient, err := CreateClient(firstGuest, gateway, server.infos.Identity.Public(), server.infos.Address.Public(), server.checkin)
+	if err != nil {
+		t.Fatalf("failed to create first event client: %v", err)
+	}
+	defer firstClient.Close()
+
+	firstGuest.event = firstClient
+	close(firstGuest.inited)
+
+	// Consume the server and client events to ensure nothing's left in the system
+	<-host.update
+	<-firstGuest.update
+	<-firstGuest.update
+
+	// Attempt to connect with a second guest, using new checkin credentials
+	secondGuest := newTestGuest()
+
+	secondClient, err := CreateClient(secondGuest, gateway, server.infos.Identity.Public(), server.infos.Address.Public(), server.checkin)
+	if err != nil {
+		t.Fatalf("failed to create second event client: %v", err)
+	}
+	defer secondClient.Close()
+
+	secondGuest.event = secondClient
+	close(secondGuest.inited)
+
+	// Ensure both server and second guest fire events
+	<-host.update
+	<-secondGuest.update
+	<-secondGuest.update
 }

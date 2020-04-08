@@ -43,7 +43,7 @@ func TestPeerSetTrustManagement(t *testing.T) {
 			clientNotify <- struct{}{}
 		},
 	})
-	if err := DialServer(context.Background(), DialConfig{
+	if _, err := DialServer(context.Background(), DialConfig{
 		Gateway:  gateway,
 		Address:  serverAddr.Public(),
 		Server:   serverId.Public(),
@@ -61,7 +61,7 @@ func TestPeerSetTrustManagement(t *testing.T) {
 	// Inject the client into the server's trust ring and retry
 	serverPeers.Trust(clientId.Public())
 
-	if err := DialServer(context.Background(), DialConfig{
+	if _, err := DialServer(context.Background(), DialConfig{
 		Gateway:  gateway,
 		Address:  serverAddr.Public(),
 		Server:   serverId.Public(),
@@ -79,7 +79,7 @@ func TestPeerSetTrustManagement(t *testing.T) {
 	// Remove the client from the server's trust ring and retry
 	serverPeers.Untrust(clientId.Fingerprint())
 
-	if err := DialServer(context.Background(), DialConfig{
+	if _, err := DialServer(context.Background(), DialConfig{
 		Gateway:  gateway,
 		Address:  serverAddr.Public(),
 		Server:   serverId.Public(),

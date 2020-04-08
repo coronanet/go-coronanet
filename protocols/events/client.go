@@ -115,18 +115,25 @@ func RecreateClient(guest Guest, gateway tornet.Gateway, infos *ClientInfos) (*C
 	})
 	// If the client is not yet checked in, do it now before returning the client
 	if client.infos.Checkin != nil {
+		// Dial the event server
 		client.checkin = make(chan error)
-		if err := tornet.DialServer(context.TODO(), tornet.DialConfig{
+		done, err := tornet.DialServer(context.TODO(), tornet.DialConfig{
 			Gateway:  gateway,
 			Address:  client.infos.Address,
 			Server:   client.infos.Identity,
 			Identity: client.infos.Checkin,
 			PeerSet:  client.peerset,
-		}); err != nil {
+		})
+		if err != nil {
 			client.peerset.Close()
 			return nil, err
 		}
-		if err := <-client.checkin; err != nil {
+		// Server dialed, but authentication may fail, wait for that or checkin
+		select {
+		case err = <-done:
+		case err = <-client.checkin:
+		}
+		if err != nil {
 			client.peerset.Close()
 			return nil, err
 		}
@@ -202,7 +209,7 @@ func (c *Client) loop() {
 
 		case <-nextDial.C:
 			logger.Debug("Dialing event server")
-			if err := tornet.DialServer(context.TODO(), tornet.DialConfig{
+			if _, err := tornet.DialServer(context.TODO(), tornet.DialConfig{
 				Gateway:  c.gateway,
 				Address:  c.infos.Address,
 				Server:   c.infos.Identity,

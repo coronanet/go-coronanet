@@ -69,7 +69,7 @@ func TestNodeConnectivity(t *testing.T) {
 	defer node2.Close()
 
 	// Connect the two nodes and wait for the pings
-	if err := node1.Dial(context.Background(), keyring2.Identity.Fingerprint()); err != nil {
+	if _, err := node1.Dial(context.Background(), keyring2.Identity.Fingerprint()); err != nil {
 		t.Fatalf("Failed to dial peer: %v", err)
 	}
 	for i := 0; i < 2; i++ {
@@ -124,7 +124,7 @@ func TestNodeTrustManagement(t *testing.T) {
 	defer node2.Close()
 
 	// Ensure that connection to the first node fails
-	if err := node2.Dial(context.Background(), keyring1.Identity.Fingerprint()); err != nil {
+	if _, err := node2.Dial(context.Background(), keyring1.Identity.Fingerprint()); err != nil {
 		t.Fatalf("Failed to dial peer: %v", err)
 	}
 	select {
@@ -138,7 +138,7 @@ func TestNodeTrustManagement(t *testing.T) {
 		Identity: keyring2.Identity.Public(),
 		Address:  keyring2.Addresses[0].Public(),
 	})
-	if err := node2.Dial(context.Background(), keyring1.Identity.Fingerprint()); err != nil {
+	if _, err := node2.Dial(context.Background(), keyring1.Identity.Fingerprint()); err != nil {
 		t.Fatalf("Failed to dial peer: %v", err)
 	}
 	select {
@@ -150,7 +150,7 @@ func TestNodeTrustManagement(t *testing.T) {
 	// Remove the client from the server's trust ring and retry
 	node1.Untrust(keyring2.Identity.Fingerprint())
 
-	if err := node2.Dial(context.Background(), keyring1.Identity.Fingerprint()); err != nil {
+	if _, err := node2.Dial(context.Background(), keyring1.Identity.Fingerprint()); err != nil {
 		t.Fatalf("Failed to dial peer: %v", err)
 	}
 	select {

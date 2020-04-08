@@ -181,6 +181,9 @@ func (s *Server) handleV1(logger log.Logger, uid tornet.IdentityFingerprint, con
 		} else {
 			s.checkin = newauth
 		}
+		if err := s.peerset.Trust(s.checkin.Public()); err != nil {
+			logger.Error("Failed to trust ephemeral credential", "err", err)
+		}
 		// Doesn't matter how the connection ends, ephemerally authenticated peer
 		// is not allowed back in. A successful checkin will permit them to enter
 		// using permanent authentication credentials.
