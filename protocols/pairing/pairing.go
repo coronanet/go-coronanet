@@ -6,6 +6,7 @@ package pairing
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/gob"
 	"errors"
 	"net"
@@ -173,6 +174,14 @@ func (p *Pairing) handleV1(logger log.Logger, uid tornet.IdentityFingerprint, co
 	// Decode the received identity and return
 	if message.Identity == nil {
 		logger.Warn("Missing identity exchange")
+		return
+	}
+	if len(message.Identity.Identity) != ed25519.PublicKeySize {
+		logger.Warn("Invalid remote identity length", "bytes", len(message.Identity.Identity))
+		return
+	}
+	if len(message.Identity.Address) != ed25519.PublicKeySize {
+		logger.Warn("Invalid remote address length", "bytes", len(message.Identity.Address))
 		return
 	}
 	p.peer = tornet.RemoteKeyRing{

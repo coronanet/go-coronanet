@@ -36,6 +36,9 @@ type PublicAddress []byte
 // AddressFingerprint is a universally unique identifier for a Tor onion address.
 type AddressFingerprint string
 
+// Signature is a digital signature produced by a secret identity.
+type Signature []byte
+
 // GenerateIdentity creates a new random local cryptographic identity.
 func GenerateIdentity() (SecretIdentity, error) {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -50,6 +53,17 @@ func GenerateIdentity() (SecretIdentity, error) {
 // Note, this method is heavy. Cache it.
 func (id SecretIdentity) Public() PublicIdentity {
 	return PublicIdentity(ed25519.NewKeyFromSeed(id).Public().(ed25519.PublicKey))
+}
+
+// Sign creates a digital signature for the given plaintext message.
+func (id SecretIdentity) Sign(message []byte) Signature {
+	return ed25519.Sign(ed25519.NewKeyFromSeed(id), message)
+}
+
+// Verify reports whether signature is a valid signature of message by the current
+// public identity.
+func (id PublicIdentity) Verify(message []byte, signature []byte) bool {
+	return ed25519.Verify(ed25519.PublicKey(id), message, signature)
 }
 
 // Fingerprint generates a universally unique identifier for a secret identity.
