@@ -6,7 +6,6 @@ package coronanet
 import (
 	"context"
 	"encoding/gob"
-	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -57,8 +56,8 @@ func NewBackend(datadir string) (*Backend, error) {
 		ProcessCreator:         libtor.Creator,
 		UseEmbeddedControlConn: true,
 		DataDir:                filepath.Join(datadir, "tor"),
-		DebugWriter:            os.Stderr,
-		NoHush:                 true,
+		//DebugWriter:            os.Stderr,
+		//NoHush:                 true,
 	})
 	if err != nil {
 		db.Close()
@@ -155,9 +154,9 @@ func (b *Backend) Close() error {
 	return nil
 }
 
-// Enable opens up the network proxy into the Tor network and starts building
-// out the P2P overlay network on top. The method is async.
-func (b *Backend) Enable() error {
+// EnableGateway opens up the network proxy into the Tor network and starts
+// building out the P2P overlay network on top. The method is async.
+func (b *Backend) EnableGateway() error {
 	log.Info("Enabling gateway networking")
 	if err := b.network.EnableNetwork(context.Background(), false); err != nil {
 		return err
@@ -177,9 +176,9 @@ func (b *Backend) Enable() error {
 	return nil
 }
 
-// Disable tears down the P2P overlay network running on top of Tor, breaks all
-// active connections and closes off he network proxy from Tor.
-func (b *Backend) Disable() error {
+// DisableGateway tears down the P2P overlay network running on top of Tor, breaks
+// all active connections and closes off he network proxy from Tor.
+func (b *Backend) DisableGateway() error {
 	log.Info("Disabling gateway networking")
 	if err := b.network.Control.SetConf(control.KeyVals("DisableNetwork", "1")...); err != nil {
 		return err
@@ -196,9 +195,9 @@ func (b *Backend) Disable() error {
 	return nil
 }
 
-// Status returns whether the backend has networking enabled, whether that works
-// or not; and the total download and upload traffic incurred since starting it.
-func (b *Backend) Status() (bool, bool, uint64, uint64, error) {
+// GatewayStatus returns whether the backend has networking enabled, whether that
+// works or not; and the download and upload traffic incurred since starting it.
+func (b *Backend) GatewayStatus() (bool, bool, uint64, uint64, error) {
 	// Retrieve whether the network is enabled or not
 	res, err := b.network.Control.GetConf("DisableNetwork")
 	if err != nil {

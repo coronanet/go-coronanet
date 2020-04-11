@@ -113,7 +113,8 @@ func (s *scheduler) loop() {
 		}
 		// Listen for scheduling requests or keyring updates
 		select {
-		case <-s.teardown:
+		case quit := <-s.teardown:
+			quit <- struct{}{}
 			return
 
 		case keyring := <-s.keyring:

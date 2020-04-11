@@ -36,7 +36,7 @@ type profile struct {
 // CreateProfile generates a new cryptographic identity for the local user and
 // injects it into the system.
 func (b *Backend) CreateProfile() error {
-	log.Info("Creating new profile")
+	log.Debug("Profile creation requested")
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -46,6 +46,8 @@ func (b *Backend) CreateProfile() error {
 		return ErrProfileExists
 	}
 	// Generate a new profile and upload it
+	log.Info("Creating new local profile")
+
 	keyring, err := tornet.GenerateKeyRing()
 	if err != nil {
 		return err
@@ -131,7 +133,7 @@ func (b *Backend) updateKeyring(keyring tornet.SecretKeyRing) {
 
 // UpdateProfile changes the profile information of an existing local user.
 func (b *Backend) UpdateProfile(name string) error {
-	log.Info("Updating profile infos", "name", name)
+	log.Debug("Profile update requested", "name", name)
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -142,9 +144,11 @@ func (b *Backend) UpdateProfile(name string) error {
 		return err
 	}
 	if prof.Name == name {
+		log.Debug("Skipping noop profile update")
 		return nil
 	}
 	// Name changed, update and serialize back to disk
+	log.Info("Updating local profile name", "old", prof.Name, "new", name)
 	prof.Name = name
 
 	blob, err := json.Marshal(prof)

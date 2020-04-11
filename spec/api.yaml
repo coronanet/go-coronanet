@@ -160,7 +160,9 @@ paths:
         - Contacts
       responses:
         403:
-          description: Cannot pair while offline
+          description: Cannot pair while offline or without profile
+        409:
+          description: Pairing session already in progress
         200:
           description: Successfully created pairing session
           content:
@@ -200,7 +202,7 @@ paths:
         400:
           description: Provided pairing secret is invalid
         403:
-          description: Cannot pair while offline
+          description: Cannot pair while offline or without profile
         409:
           description: Remote contact already paired
         200:

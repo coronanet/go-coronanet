@@ -161,6 +161,10 @@ func RecreateClient(guest Guest, gateway tornet.Gateway, infos *ClientInfos) (*C
 
 // Close terminates a running event server.
 func (c *Client) Close() error {
+	quit := make(chan struct{})
+	c.teardown <- quit
+	<-quit
+
 	return c.peerset.Close()
 }
 
@@ -216,7 +220,8 @@ func (c *Client) loop() {
 	logger := log.New("event", c.infos.Identity.Fingerprint())
 	for {
 		select {
-		case <-c.teardown:
+		case quit := <-c.teardown:
+			quit <- struct{}{}
 			return
 
 		case suspend := <-c.suspend:
