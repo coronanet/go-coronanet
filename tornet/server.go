@@ -110,7 +110,7 @@ func (s *Server) loop(peerset *PeerSet) {
 	for err == nil {
 		var conn net.Conn
 		if conn, err = s.listener.Accept(); err == nil {
-			go peerset.handle(conn)
+			go peerset.handle(conn, make(chan error, 1)) // We don't care about the error
 		}
 	}
 	// Something went wrong, terminate
@@ -150,20 +150,25 @@ type DialConfig struct {
 // DialServer attempts to connect to a remote server at the specified address,
 // and if successful, the method does a bidirectional TLS handshake. If all is
 // ok, the peer set's internal handler will be run.
-func DialServer(ctx context.Context, config DialConfig) error {
+//
+// Since the handshake is async, a failure cannot be immediately returned. Instead,
+// an error channel is returned which will get sent any failure after dialing.
+func DialServer(ctx context.Context, config DialConfig) (chan error, error) {
 	// Try to establish a connection through the Tor network
 	dialer, err := config.Gateway.Dialer(ctx, &tor.DialConf{
 		SkipEnableNetwork: true, // DO NOT CONNECT TOR ON YOUR OWN
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	onion := torutil.OnionServiceIDFromPublicKey(tored25519.FromCryptoPublicKey(ed25519.PublicKey(config.Address)))
 	conn, err := dialer.Dial("tcp", fmt.Sprintf("%s.onion:1", onion))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Wrap the connection into a TLS client to ensure mutual authentication
+	done := make(chan error, 1) // TODO(karalabe): Bleah, this is one ugly hack
+
 	go config.PeerSet.handle(tls.Client(conn, &tls.Config{
 		// Certificates ensures that the secret identity is the only thing we're
 		// willing to talk through.
@@ -203,6 +208,6 @@ func DialServer(ctx context.Context, config DialConfig) error {
 			// Public key authorized, validate the self-signed certificate
 			return cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature)
 		},
-	}))
-	return nil
+	}), done)
+	return done, nil
 }

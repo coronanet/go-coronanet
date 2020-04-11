@@ -24,7 +24,9 @@ tags:
   - name: Profile
     description: Manage the local Corona Network profile
   - name: Contacts
-    description: Manage your contact list in the Corona Network
+    description: Manage the contact list in the Corona Network
+  - name: Events
+    description: Manage hosted and joined events in the Corona Network
   - name: CDN
     description: Immutable objects infinitely cacheable
 
@@ -151,44 +153,6 @@ paths:
         200:
           description: Successfully deleted the local user's profile picture
 
-  /profile/updates:
-    get:
-      summary: Retrieves the local user's status updates
-      tags:
-        - Profile
-      parameters:
-        - name: before
-          in: query
-          description: Unix timestamp to return updates from
-          schema:
-            type: number
-        - name: limit
-          in: query
-          description: Number of status updates to return
-          schema:
-            type: number
-      responses:
-        403:
-          description: Local user doesn't exist
-        200:
-          $ref: '#/components/responses/Statuses'
-    post:
-      summary: Updates the local user's infection status
-      tags:
-        - Profile
-      requestBody:
-        description: New status of the current user
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Status'
-      responses:
-        403:
-          description: Local user doesn't exist
-        200:
-          description: User status updated
-
   /pairing:
     post:
       summary: Creates a pairing session for contact establishment
@@ -249,7 +213,7 @@ paths:
 
   /contacts:
     get:
-      summary: List all contacts of the local user
+      summary: Lists all contacts of the local user
       tags:
         - Contacts
       responses:
@@ -338,34 +302,229 @@ paths:
         302:
           $ref: '#/components/responses/Avatar'
 
-  /contacts/{id}/profile/updates:
+  /events/hosted:
+    get:
+      summary: Lists all the hosted events
+      tags:
+        - Events
+      responses:
+        200:
+          description: Returns a list of event IDs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+    post:
+      summary: Hosts a new event
+      tags:
+        - Events
+      requestBody:
+        description: Permanent details of the event
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Permanent name of the event
+      responses:
+        403:
+          description: Local user doesn't exist
+        200:
+          description: Successfully created event
+          content:
+            application/json:
+              schema:
+                type: string
+                description: Permenent event ID
+
+  /events/hosted/{id}:
     parameters:
       - name: id
         in: path
         required: true
-        description: Globally unique identifier of contact
+        description: Globally unique identifier of the event
         schema:
           type: string
     get:
-      summary: Retrieves a remote contact's status updates
+      summary: Retrieves a hosted event's statistics
       tags:
-        - Contacts
-      parameters:
-        - name: before
-          in: query
-          description: Unix timestamp to return updates from
-          schema:
-            type: number
-        - name: limit
-          in: query
-          description: Number of status updates to return
-          schema:
-            type: number
+        - Events
+      responses:
+        404:
+          description: Hosted event doesn't exist
+        200:
+          $ref: '#/components/responses/Event'
+    delete:
+      summary: Terminates the event, will be cleaned up automatically
+      tags:
+        - Events
       responses:
         403:
-          description: Remote contact doesn't exist
+          description: Hosted event already terminated
+        404:
+          description: Hosted event doesn't exist
         200:
-          $ref: '#/components/responses/Statuses'
+          description: Successfully terminated event
+
+  /events/hosted/{id}/banner:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Globally unique identifier of the event
+        schema:
+          type: string
+    get:
+      summary: Retrieves a hosted event's banner picture
+      tags:
+        - Events
+      responses:
+        403:
+          description: Hosted event doesn't exist
+        404:
+          description: Hosted event doesn't have a banner picture
+        302:
+          $ref: '#/components/responses/Banner'
+    put:
+      summary: Updates the hosted event's banner picture
+      tags:
+        - Events
+      requestBody:
+        $ref: '#/components/requestBodies/Avatar'
+      responses:
+        403:
+          description: Hosted event doesn't exist
+        409:
+          description: Hosted event already terminated
+        200:
+          description: Event banner picture updated
+    delete:
+      summary: Deletes the hosted event's banner picture
+      tags:
+        - Events
+      responses:
+        403:
+          description: Hosted event doesn't exist
+        200:
+          description: Successfully deleted the hosted event's banner picture
+
+  /events/hosted/{id}/checkin:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Globally unique identifier of the event
+        schema:
+          type: string
+    post:
+      summary: Creates or retrieves the current checkin session
+      tags:
+        - Events
+      responses:
+        403:
+          description: Cannot checkin while offline or event doesn't exist
+        200:
+          description: Successfully created checkin session
+          content:
+            application/json:
+              schema:
+                type: string
+                description: Event discovery and checkin credentials
+    get:
+      summary: Waits for the current checkin session to complete
+      tags:
+        - Events
+      responses:
+        403:
+          description: No checkin session in progress
+        200:
+          description: Successfully checked in participant
+          content: {}
+
+  /events/joined:
+    get:
+      summary: Lists all the joined events
+      tags:
+        - Events
+      responses:
+        200:
+          description: Returns a list of event IDs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+    post:
+      summary: Checks into an existing event
+      tags:
+        - Events
+      requestBody:
+        description: Event discovery and checkin credentials
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+              description: Credentials in internal format
+      responses:
+        400:
+          description: Provided event credentials are invalid
+        403:
+          description: Cannot checkin while offline
+        409:
+          description: Remote event already joined
+        200:
+          description: Successfully checked in to event
+          content:
+            application/json:
+              schema:
+                type: string
+                description: Permenent event ID
+
+
+  /events/joined/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Globally unique identifier of the event
+        schema:
+          type: string
+    get:
+      summary: Retrieves a joined event's statistics
+      tags:
+        - Events
+      responses:
+        404:
+          description: Joined event doesn't exist
+        200:
+          $ref: '#/components/responses/Event'
+
+  /events/joined/{id}/banner:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Globally unique identifier of the event
+        schema:
+          type: string
+    get:
+      summary: Retrieves a joined event's banner picture
+      tags:
+        - Events
+      responses:
+        403:
+          description: Joined event doesn't exist
+        404:
+          description: Joined event doesn't have a banner picture
+        302:
+          $ref: '#/components/responses/Banner'
 
   /cdn/images/{sha3}:
     get:
@@ -400,22 +559,48 @@ components:
         name:
           type: string
           description: Full name of the user
-    Status:
+    Event:
       type: object
       properties:
-        infecton:
+        name:
           type: string
-          description: Infection status (negative, positive, suspect)
-        message:
+          description: Name of the event
+        start:
           type: string
-          description: Personal message attached to the status update
-        time:
-          type: number
-          description: Unix timestamp when the status was posted
+          description: Start time of the event
+        end:
+          type: string
+          description: Conclusion time of the event
+        attendees:
+          type: integer
+          description: Number of participants in the event
+        negatives:
+          type: integer
+          description: Participants who reported negative test results
+        suspected:
+          type: integer
+          description: Participants who might have been infected
+        positives:
+          type: integer
+          description: Participants who reported positive infection
+        updated:
+          type: string
+          description: Time when the event was last modified
+        synced:
+          type: string
+          description: Time when the event was last synced (but not modified)
 
   requestBodies:
     Avatar:
       description: New profile picture for the user
+      required: true
+      content:
+        image/jpeg:
+          schema:
+            type: string
+            format: binary
+    Banner:
+      description: New banner picture for the event
       required: true
       content:
         image/jpeg:
@@ -437,11 +622,16 @@ components:
           schema:
             type: string
             format: binary
-    Statuses:
-      description: Returns the requested status updates
+    Event:
+      description: Returns requested event statistics
       content:
         application/json:
           schema:
-            type: array
-            items:
-              $ref: '#/components/schemas/Status'
+            $ref: '#/components/schemas/Event'
+    Banner:
+      description: Redirect to immutable image
+      content:
+        image/jpeg:
+          schema:
+            type: string
+            format: binary

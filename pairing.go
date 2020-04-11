@@ -37,6 +37,9 @@ func (b *Backend) InitPairing() (tornet.SecretIdentity, tornet.PublicAddress, er
 	if b.pairing != nil {
 		return nil, nil, ErrAlreadyPairing
 	}
+	if b.overlay == nil {
+		return nil, nil, ErrNetworkDisabled
+	}
 	// No pairing session running, create a new one
 	prof, err := b.Profile()
 	if err != nil {
@@ -74,6 +77,13 @@ func (b *Backend) WaitPairing() (tornet.RemoteKeyRing, error) {
 // JoinPairing joins a remotely initiated pairing session.
 func (b *Backend) JoinPairing(secret tornet.SecretIdentity, address tornet.PublicAddress) (tornet.RemoteKeyRing, error) {
 	log.Info("Joining pairing session", "address", address.Fingerprint(), "identity", secret.Fingerprint())
+
+	b.lock.RLock()
+	if b.overlay == nil {
+		b.lock.RUnlock()
+		return tornet.RemoteKeyRing{}, ErrNetworkDisabled
+	}
+	b.lock.RUnlock()
 
 	// Ensure we are in a pairable state
 	prof, err := b.Profile()

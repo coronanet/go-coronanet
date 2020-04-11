@@ -33,7 +33,7 @@ type profile struct {
 	Avatar  [32]byte              `json:"avatar"`
 }
 
-// CreateProfile generates a new cryptographic identity for the local used and
+// CreateProfile generates a new cryptographic identity for the local user and
 // injects it into the system.
 func (b *Backend) CreateProfile() error {
 	log.Info("Creating new profile")

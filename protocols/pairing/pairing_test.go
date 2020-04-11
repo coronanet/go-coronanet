@@ -13,6 +13,8 @@ import (
 
 // Tests that basic pairing works.
 func TestPairing(t *testing.T) {
+	t.Parallel()
+
 	// Create two identities, one for initiating pairing and one for joining
 	initKeyRing, _ := tornet.GenerateKeyRing()
 	joinKeyRing, _ := tornet.GenerateKeyRing()

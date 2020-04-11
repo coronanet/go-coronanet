@@ -6,6 +6,7 @@ package pairing
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/gob"
 	"errors"
 	"net"
@@ -95,7 +96,8 @@ func NewClient(gateway tornet.Gateway, self tornet.RemoteKeyRing, identity torne
 			},
 		}),
 	})
-	if err := tornet.DialServer(context.TODO(), tornet.DialConfig{
+	// TODO(karalabe): Maybe also watch for handshake errors instead of waiting for a timeout
+	if _, err := tornet.DialServer(context.TODO(), tornet.DialConfig{
 		Gateway:  gateway,
 		Address:  address,
 		Server:   identity.Public(),
@@ -173,6 +175,14 @@ func (p *Pairing) handleV1(logger log.Logger, uid tornet.IdentityFingerprint, co
 	// Decode the received identity and return
 	if message.Identity == nil {
 		logger.Warn("Missing identity exchange")
+		return
+	}
+	if len(message.Identity.Identity) != ed25519.PublicKeySize {
+		logger.Warn("Invalid remote identity length", "bytes", len(message.Identity.Identity))
+		return
+	}
+	if len(message.Identity.Address) != ed25519.PublicKeySize {
+		logger.Warn("Invalid remote address length", "bytes", len(message.Identity.Address))
 		return
 	}
 	p.peer = tornet.RemoteKeyRing{

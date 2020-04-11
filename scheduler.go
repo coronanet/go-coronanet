@@ -164,7 +164,7 @@ func (s *scheduler) loop() {
 				continue
 			}
 			log.Debug("Scheduling dial for contact", "contact", nextDial)
-			if err := overlay.Dial(context.TODO(), nextDial); err != nil {
+			if _, err := overlay.Dial(context.TODO(), nextDial); err != nil {
 				log.Error("Dial request failed", "contact", nextDial, "schedule", schedulerFailureRedial, "err", err)
 				schedule[nextDial] = time.Now().Add(schedulerFailureRedial)
 			} else {

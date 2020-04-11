@@ -10,7 +10,6 @@ import (
 	"net"
 	"sync"
 
-	"github.com/akutz/memconn"
 	"github.com/cretz/bine/tor"
 	"github.com/cretz/bine/torutil"
 	"github.com/cretz/bine/torutil/ed25519"
@@ -78,7 +77,7 @@ func (gw *mockGateway) Listen(ctx context.Context, conf *tor.ListenConf) (net.Li
 		return nil, fmt.Errorf("service %s already open", url)
 	}
 	// Create a network listener, but leave it to the OS to pick a TCP port
-	listener, err := memconn.Listen("memu", id)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
 	}
@@ -129,5 +128,5 @@ func (d *mockGatewayDialer) Dial(network, addr string) (net.Conn, error) {
 	if listener == nil {
 		return nil, errors.New("unknown destination address")
 	}
-	return memconn.Dial(listener.Addr().Network(), listener.Addr().String())
+	return net.Dial(listener.Addr().Network(), listener.Addr().String())
 }

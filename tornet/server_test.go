@@ -47,7 +47,7 @@ func TestServerConnectivity(t *testing.T) {
 			clientNotify <- struct{}{}
 		},
 	})
-	if err := DialServer(context.Background(), DialConfig{
+	if _, err := DialServer(context.Background(), DialConfig{
 		Gateway:  gateway,
 		Address:  serverAddr.Public(),
 		Server:   serverId.Public(),

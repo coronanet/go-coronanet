@@ -13,6 +13,7 @@ import (
 
 	"github.com/coronanet/go-coronanet/protocols"
 	"github.com/coronanet/go-coronanet/protocols/corona"
+	"github.com/coronanet/go-coronanet/protocols/events"
 	"github.com/coronanet/go-coronanet/protocols/pairing"
 	"github.com/coronanet/go-coronanet/tornet"
 	"github.com/cretz/bine/control"
@@ -29,11 +30,17 @@ type Backend struct {
 	database *leveldb.DB // Database to avoid custom file formats for storage
 	network  *tor.Tor    // Proxy through the Tor network, nil when offline
 
+	// Social protocol and related fields
 	overlay *tornet.Node     // Overlay network running the Corona protocol
 	dialer  *scheduler       // Dial scheduler to periodically connect to peers
 	pairing *pairing.Pairing // Currently active pairing session (nil if none)
 
 	peerset map[tornet.IdentityFingerprint]*gob.Encoder // Current active connections for updates
+
+	// Event protocol and related fields
+	hosted  map[tornet.IdentityFingerprint]*events.Server         // Locally hosted and maintained events
+	checkin map[tornet.IdentityFingerprint]*events.CheckinSession // Active checkin session per hosted event
+	joined  map[tornet.IdentityFingerprint]*events.Client         // Remotely joined and watched events
 
 	lock sync.RWMutex
 }
@@ -75,12 +82,13 @@ func NewBackend(datadir string) (*Backend, error) {
 	return backend, nil
 }
 
-// initOverlay initializes the cryptographic tornet overlay on top of the existing
-// Tor gateway according to the keyring in profile.
+// initOverlay initializes the application layer networking protocols that will
+// the within the backend.
 //
 // Note, this method assumes the write lock is held.
 func (b *Backend) initOverlay(keyring tornet.SecretKeyRing) error {
-	log.Info("Creating overlay node", "addresses", len(keyring.Addresses), "contacts", len(keyring.Trusted))
+	// Create the social network node for the contact list
+	log.Info("Creating social node", "addresses", len(keyring.Addresses), "contacts", len(keyring.Trusted))
 	if b.overlay != nil {
 		panic("overlay double initialized")
 	}
@@ -100,14 +108,25 @@ func (b *Backend) initOverlay(keyring tornet.SecretKeyRing) error {
 		return err
 	}
 	b.overlay = overlay
+
+	// Create the event servers and clients for meetup tracking
+	if err := b.initEvents(); err != nil {
+		b.overlay.Close()
+		b.overlay = nil
+		return err
+	}
 	return nil
 }
 
-// nukeOverlay tears down the entire overlay network built on top of Tor.
+// nukeOverlay tears down the entire application overlay network.
 //
 // Note, this method assumes the write lock is held.
 func (b *Backend) nukeOverlay() error {
-	log.Info("Deleting overlay node")
+	// Tear down the event servers and clients
+	b.nukeEvents()
+
+	// Tear down the social networking
+	log.Info("Deleting social node")
 	if b.overlay == nil {
 		return nil
 	}
@@ -149,6 +168,12 @@ func (b *Backend) Enable() error {
 		return nil // No profile is fine
 	}
 	b.dialer.reinit(*prof.KeyRing)
+
+	b.lock.RLock()
+	for _, client := range b.joined {
+		client.Resume()
+	}
+	b.lock.RUnlock()
 	return nil
 }
 
@@ -161,6 +186,13 @@ func (b *Backend) Disable() error {
 	}
 	// Networking disabled, suspend all scheduled dials as pointless
 	b.dialer.suspend()
+
+	b.lock.RLock()
+	for _, client := range b.joined {
+		client.Suspend()
+	}
+	b.lock.RUnlock()
+
 	return nil
 }
 

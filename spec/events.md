@@ -11,7 +11,8 @@ Practical details:
 - While the event is running, the organizer can display a QR code, which participant scan to check-in to the event. Checking in requires an active internet connection as the authentication codes are rotated live. This guarantees proof-of-presence.
 - Checking in shares absolutely no information with the event organizer, only pings it to bump the attendee count. Information will only ever be sent to the event in case of suspected or positive infection.
 - Authorized (checked in) participants can for the duration of the event (+ the `14 day` maintenance period) request infection updates (suspect or confirmed cases at the event) and push their own status too.
-- If a participant updates their infection status to confirmed positive, confirmed negative or suspect, that is sent to the event organizer along with their profile infos to permit sanity checking suspicious reports.
+- If a participant updates their infection status to confirmed positive, confirmed negative or suspect, that is sent to the event organizer along with their name to permit sanity checking suspicious reports.
+- Infection updates from participants are only allowed to transition from `unknown` to `suspect/negative/positive`; and from `suspect` to `negative/positive`. Other transitions are rejected to avoid gaming the system.
 - The organizer may manually (e.g. phone call) confirm whether a status update is legitimate. The report and optional checkup will be merged into the event's statistics, but details will not be made available to participants.
 
 ![Event Example](images/events_example.png)
@@ -20,19 +21,21 @@ Practical details:
 
 To create an event, an organizer generates a new random cryptographic identity and address, which together will form a `tornet` server. The organizer will run this server for `14 days` after the event ends.
 
-When the organizer wishes to check a participant in, they generate a QR code consisting of the event's public key, event's public address and a single-use auth token. A participant in will use these credentials for initial contact, through which it negotiates a long-term auth token.
+When the organizer wishes to check a participant in, they generate a code consisting of the event's public key, event's public address and a single-use auth token. A participant in will use these credentials for initial contact, through which it negotiates long-term pseudonymous auth credentials.
 
-Participants will periodically `3-6 hours` connect to the `tornet` server and retrieve any updated statistics, recalculating their own probability of being infected.
+Participants will periodically `3-6 hours` connect to the event server and retrieve any updated statistics, recalculating their own probability of being infected.
 
-If on the other hand a participant is deemed infected (or suspect) based on participation in other events; or based of self reported test results / symptoms, they will actively attempt to push their status update to the event every `30 minutes`, until they are successful.
+If on the other hand a participant is deemed infected (or suspected) based on participation in other events; or based of self reported test results / symptoms, they will actively attempt to push their status update to the event every `30 minutes`, until they are successful.
+
+![Event Pseudonyms](images/events_pseudonyms.png)
 
 ### Technical caveats
 
-**Why use a new identity/address for the event and not the organizer's?**
+**Why use a pseudonym for the event and not the organizer's real identity?**
 
 Events are ephemeral. They last a few weeks, after which they are permanently deleted. By using ephemeral identities, it becomes impossible to track organizers across events.
 
-**Why check in with a random identity instead of your own?**
+**Why check in with a pseudonym instead of the participant's real identity?**
 
 Most participants will not send infection updates to events, rather will only gather statistics about their own past presences. By keeping the identity of participants secret, organizers will not be able to track participants across events.
 
@@ -45,13 +48,15 @@ The envelope is:
 ```go
 // Envelope contains all possible messages sent and received.
 type Envelope struct {
-	Disconnect *system.Disconnect
-	Checkin    *events.Checkin
-	CheckinAck *events.CheckinAck
-	GetStatus  *events.GetStatus
-	Status     *events.Status
-	Report     *events.Report
-	ReportAck  *events.ReportAck
+	Disconnect  *protocols.Disconnect
+	Checkin     *Checkin
+	CheckinAck  *CheckinAck
+	GetMetadata *GetMetadata
+	Metadata    *Metadata
+	GetStatus   *GetStatus
+	Status      *Status
+	Report      *Report
+	ReportAck   *ReportAck
 }
 ```
 
@@ -60,6 +65,8 @@ Whenever a connection is made to an event's `tornet` server, the authentication 
 - If the credential is the current ephemeral check-in secret, the remote peer is expected to run a checkin round.
 - If the credential is a long-term participant identity from a previous check-in round, the remote peer is expected to exchange data.
 
+*The deadline for finishing the checkin process is `3 seconds`. The idleness timeout for breaking a data exchange connection is `1 minute`.*
+
 ### Check-in messages
 
 The checkin process is a fairly straightforward request/reply exchange. The client wishing to check in needs to create its own temporary identity for the event and send it over to the organizer. In addition, the message also needs to contain a digital signature over the original authentication credentials to prove that the client owns the identity.
@@ -67,23 +74,36 @@ The checkin process is a fairly straightforward request/reply exchange. The clie
 ```go
 // Checkin represents a request to attend an event.
 type Checkin struct {
-	Identity  []byte // Ephemeral tornet identity to check in with
-	Signature []byte // Digital signature over the auth credentials 
+	Pseudonym tornet.PublicIdentity // Ephemeral identity to check in with
+	Signature tornet.Signature      // Digital signature over the event identity
 }
 ```
 
-Upon receiving a checkin request, the event will verify the signature, and if it checks out will reply with a confirmation. If an error occurs, the confirmation will contain a short reason (mostly developer aid).
+Upon receiving a checkin request, the event will verify the signature, and if it checks out will reply with a confirmation. If an error occurs, the connection will be torn down without a reason.
 
 ```go
 // CheckinAck represents the organizer's response to a checkin request.
-type CheckinAck struct {
-	Failure error // Failure reason if the checkin was denied
-}
+type CheckinAck struct{}
 ```
 
 Independent whether a checkin is successful or not, the authentication credentials is burned and cannot be reused a second time.
 
 ### Data exchange messages
+
+After checking in to an event, participants can retrieve some permanent metadata about it. These are social network caliber niceties, mostly meant to have a nicer user experience.
+
+```go
+// GetMetadata requests the events permanent metadata.
+type GetMetadata struct{}
+
+// Metadata sends the events permanent metadata.
+type Metadata struct {
+	Name   string // Free form name the event is advertising
+	Banner []byte // Binary image of banner, mime not restricted for now
+}
+```
+
+*Participants should retrieve the metadata once and assume its permanent. This is necessary to avoid organizers from maliciously modifying information or abusing the system for advertising purposes.*
 
 The basic data exchange that participants and the organizer will do is request and return event statistics. The role of these are to warn participants of potential infection risks from the event.
 
@@ -96,33 +116,33 @@ type Status struct {
 	Start time.Time // Timestamp when the event started
 	End   time.Time // Timestamp when the event ended (0 if not ended)
 
-	Attended  uint // Number of participants in the event
+	Attendees uint // Number of participants in the event
 	Negatives uint // Participants who reported negative test results
-	Suspects  uint // Participants who might have been infected
+	Suspected uint // Participants who might have been infected
 	Positives uint // Participants who reported positive infection 
 }
 ```
 
 *Participants should check for updates every now and again, but they should not expect real time warnings. A potentially good polling time could be `3-6 hours`.*
 
-If a participant has an infection status update that's relevant for the event's timeline, they can send an update report to the organizer. Beside the new infection status and an optional note, the report also sends over the participant's permanent identity and name to allow out-of-protocol verification of reports.
+If a participant has an infection status update that's relevant for the event's timeline, they can send an update report to the organizer. Beside the new infection status and an optional note, the report also sends over the participant's permanent identity and name to allow out-of-protocol verification of reports. The signature is over the event identity and the report fields (name, status, message). These are used to prevent duplicating reports across events.
 
-The signature is over the event identity and the report fields (name, status, message). These are used to prevent duplicating reports across events.
+The event server will respond, sending back the current infection status associated with the participant. If the report contained an invalid infection status transition, the report is simply ignored and the old status returned. In case of all other errors, the connection is torn down.
 
 ```go
 // Report is an infection status update from a participant.
 type Report struct {
-	Identity []byte // Permanent tornet identity to report with
-	Name     string // Free form name the user is advertising (might be fake)
+	Name    string // Free form name the user is advertising (might be fake)
+	Status  string // Infection status (unknown, negative, suspect, positive)
+	Message string // Any personal message for the status update
 
-	Status    string // Infection status (negative, suspect, positive)
-	Message   string // Any personal message for the status update
-	Signature []byte // Signature over the event identity and above fields
+	Identity  tornet.PublicIdentity // Permanent identity to reporting with
+	Signature tornet.Signature      // Signature over the event identity and above fields
 }
 
 // ReportAck is a receipt confirmation from the organizer.
 type ReportAck struct {
-	Failure error // Failure reason if the report was denied
+	Status string // Currently maintained infection status
 }
 ```
 
