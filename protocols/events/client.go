@@ -6,7 +6,6 @@ package events
 import (
 	"context"
 	"encoding/gob"
-	"errors"
 	"io"
 	"net"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	"github.com/coronanet/go-coronanet/protocols"
 	"github.com/coronanet/go-coronanet/tornet"
 	"github.com/ethereum/go-ethereum/log"
+	"golang.org/x/crypto/sha3"
 )
 
 // clientDialRequest is a request to reprioritize the current dial schedule to
@@ -35,7 +35,13 @@ type Guest interface {
 	// OnUpdate is invoked when the internal stats of the event changes. All the
 	// changes should be persisted to disk to allow recovering. This method does
 	// not get passed the updated infos to avoid a data race overwriting something.
-	OnUpdate(event tornet.IdentityFingerprint)
+	OnUpdate(event tornet.IdentityFingerprint, client *Client)
+
+	// OnBanner is invoked when the banner image of the event changes. Opposed to
+	// the OnUpdate, here we actually send the banner along. This might be racey
+	// if the protocol allowed frequent banner updates, but since we explicitly
+	// forbid it, this is simpler.
+	OnBanner(event tornet.IdentityFingerprint, banner []byte)
 }
 
 // ClientInfos is all the data maintained about a remote event. It is pre-tagged
@@ -48,7 +54,7 @@ type ClientInfos struct {
 	Pseudonym tornet.SecretIdentity `json:"pseudonym"` // Identity to use for reading stats
 
 	Name   string    `json:"name"`   // Name of the event
-	Banner []byte    `json:"banner"` // Banner image of the event
+	Banner [32]byte  `json:"banner"` // Banner image hash of the event
 	Start  time.Time `json:"start"`  // Start time of the event
 	End    time.Time `json:"end"`    // Conclusion time of the event
 
@@ -58,18 +64,24 @@ type ClientInfos struct {
 	Negatives uint `json:"negatives"` // Participants who reported negative test results
 	Suspected uint `json:"suspected"` // Participants who might have been infected
 	Positives uint `json:"positives"` // Participants who reported positive infection
+
+	Updated time.Time `json:"updated"` // Time when the event was last modified
+	Synced  time.Time `json:"synced"`  // Time when the event was last synced
 }
 
 // Client is a remotely hosted event, running a `tornet` client which periodically
 // connects to receive any infection status updates.
 type Client struct {
-	guest   Guest           // Guest running the client for data persistency
-	gateway tornet.Gateway  // Gateway to dial the event server through
-	infos   *ClientInfos    // Complete event metadata and statistics
+	guest   Guest          // Guest running the client for data persistency
+	gateway tornet.Gateway // Gateway to dial the event server through
+	infos   *ClientInfos   // Complete event metadata and statistics
+	banner  []byte         // Banner image cached for quick serving
+
 	peerset *tornet.PeerSet // Peer set handling remote connectivity
 
 	checkin chan error              // Notification channel when checkin finishes
 	update  chan *clientDialRequest // Update channel to change the dial priority
+	suspend chan bool               // Channel to suspend or resume auto dialing
 
 	teardown   chan chan struct{} // Termination channel to stop future dials
 	terminated chan struct{}      // Termination notification channel to unblock update
@@ -100,6 +112,7 @@ func RecreateClient(guest Guest, gateway tornet.Gateway, infos *ClientInfos) (*C
 		gateway:    gateway,
 		infos:      infos,
 		update:     make(chan *clientDialRequest),
+		suspend:    make(chan bool),
 		teardown:   make(chan chan struct{}),
 		terminated: make(chan struct{}),
 	}
@@ -170,6 +183,24 @@ func (c *Client) Report() {
 	}
 }
 
+// Suspend instructs the client to stop auto-dialing. This is useful when the
+// network layer gets disabled, since everything will fail anyway.
+func (c *Client) Suspend() {
+	select {
+	case c.suspend <- true:
+	case <-c.terminated:
+	}
+}
+
+// Resume instructs the client to start auto-dialing. This is useful to trigger
+// an immediate redial when networking is enabled.
+func (c *Client) Resume() {
+	select {
+	case c.suspend <- false:
+	case <-c.terminated:
+	}
+}
+
 // loop is the scheduler that periodically connects to the event server to fetch
 // any updated statistics and to push relevant infection statuses.
 func (c *Client) loop() {
@@ -187,6 +218,24 @@ func (c *Client) loop() {
 		select {
 		case <-c.teardown:
 			return
+
+		case suspend := <-c.suspend:
+			// If networking is suspended, stop auto-dialing, otherwise redial
+			// instantly.
+			if !nextDial.Stop() { // Both paths touch the dialer
+				select {
+				case <-nextDial.C:
+				default:
+				}
+			}
+			nextTime = time.Now() // Ensures updates don't resume accidentally
+
+			if suspend {
+				logger.Debug("Suspending event dialing")
+			} else {
+				logger.Debug("Resuming event dialing")
+				nextDial.Reset(time.Until(nextTime))
+			}
 
 		case sched := <-c.update:
 			// A schedule priority change was requested, apply if meaningful
@@ -249,40 +298,6 @@ func (c *Client) handleV1(logger log.Logger, uid tornet.IdentityFingerprint, con
 	c.handleV1DataExchange(logger, uid, conn, enc, dec)
 }
 
-// handleV1CheckIn is the network handler for the v1 `event` protocol's checkin
-// phase.
-func (c *Client) handleV1CheckIn(logger log.Logger, uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder) {
-	logger.Info("Checking in to event", "pseudonym", c.infos.Pseudonym.Fingerprint())
-
-	// The entire exchange is time limited, ensure failure if it's exceeded
-	conn.SetDeadline(time.Now().Add(checkinTimeout))
-
-	// Create the checkin request, digitally signed with the pseudonym
-	if err := enc.Encode(&Envelope{Checkin: &Checkin{
-		Pseudonym: c.infos.Pseudonym.Public(),
-		Signature: c.infos.Pseudonym.Sign(c.infos.Identity),
-	}}); err != nil {
-		logger.Warn("Failed to send checkin", "err", err)
-		c.checkin <- err
-		return
-	}
-	// Read the checkin ack before finalizing the event client
-	message := new(Envelope)
-	if err := dec.Decode(message); err != nil {
-		logger.Warn("Failed to read checkin ack", "err", err)
-		c.checkin <- err
-		return
-	}
-	if message.CheckinAck == nil {
-		logger.Warn("Received unknown ack message")
-		c.checkin <- errors.New("unknown checkin ack")
-		return
-	}
-	// Checkin successful, notify the blocked constructor
-	logger.Info("Checked in to event", "pseudonym", c.infos.Pseudonym.Fingerprint())
-	c.checkin <- nil
-}
-
 // handleV1DataExchange is the network handler for the v1 `event` protocol's
 // data exchange phase.
 func (c *Client) handleV1DataExchange(logger log.Logger, uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder) {
@@ -331,12 +346,14 @@ func (c *Client) handleV1DataExchange(logger log.Logger, uid tornet.IdentityFing
 				c.lock.Unlock()
 				return
 			}
+			c.banner = message.Metadata.Banner
 			c.infos.Name = message.Metadata.Name
-			c.infos.Banner = message.Metadata.Banner
+			c.infos.Banner = sha3.Sum256(c.banner)
 			c.lock.Unlock()
 
-			// Event updated, persist it to disk
-			c.guest.OnUpdate(c.infos.Identity.Fingerprint())
+			// Event updated, persist it to disk (banner first, otherwise the above hash will break)
+			c.guest.OnBanner(c.infos.Identity.Fingerprint(), c.banner)
+			c.guest.OnUpdate(c.infos.Identity.Fingerprint(), c)
 
 		case message.Status != nil:
 			logger.Info("Organizer sent event status", "status", message.Status)
@@ -345,21 +362,36 @@ func (c *Client) handleV1DataExchange(logger log.Logger, uid tornet.IdentityFing
 			c.lock.Lock()
 			if c.infos.Start == (time.Time{}) {
 				c.infos.Start = message.Status.Start
+				c.infos.Updated = time.Now()
 
 				// Event was completed just now, maybe send infection status
 				go c.sendStatusReport(logger, enc)
 			}
 			if c.infos.End == (time.Time{}) {
 				c.infos.End = message.Status.End
+				c.infos.Updated = time.Now()
 			}
-			c.infos.Attendees = message.Status.Attendees
-			c.infos.Negatives = message.Status.Negatives
-			c.infos.Suspected = message.Status.Suspected
-			c.infos.Positives = message.Status.Positives
+			if c.infos.Attendees != message.Status.Attendees {
+				c.infos.Attendees = message.Status.Attendees
+				c.infos.Updated = time.Now()
+			}
+			if c.infos.Negatives != message.Status.Negatives {
+				c.infos.Negatives = message.Status.Negatives
+				c.infos.Updated = time.Now()
+			}
+			if c.infos.Suspected != message.Status.Suspected {
+				c.infos.Suspected = message.Status.Suspected
+				c.infos.Updated = time.Now()
+			}
+			if c.infos.Positives != message.Status.Positives {
+				c.infos.Positives = message.Status.Positives
+				c.infos.Updated = time.Now()
+			}
+			c.infos.Synced = time.Now()
 			c.lock.Unlock()
 
 			// Event updated, persist it to disk
-			c.guest.OnUpdate(c.infos.Identity.Fingerprint())
+			c.guest.OnUpdate(c.infos.Identity.Fingerprint(), c)
 
 		case message.ReportAck != nil:
 			logger.Info("Organizer sent report ack", "status", message.ReportAck.Status)
@@ -379,7 +411,7 @@ func (c *Client) handleV1DataExchange(logger log.Logger, uid tornet.IdentityFing
 			c.lock.Unlock()
 
 			// Event updated, persist it to disk
-			c.guest.OnUpdate(c.infos.Identity.Fingerprint())
+			c.guest.OnUpdate(c.infos.Identity.Fingerprint(), c)
 
 		default:
 			logger.Warn("Organizer sent unknown message")

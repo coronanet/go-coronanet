@@ -48,7 +48,7 @@ func (api *api) servePairing(w http.ResponseWriter, r *http.Request) {
 	case "PUT":
 		// Waits for a pairing session to complete
 
-		// Read the pairing secret from the command line
+		// Read the pairing secret from the request body
 		var blob []byte
 		if err := json.NewDecoder(r.Body).Decode(&blob); err != nil { // Bit unorthodox, but we don't want callers to interpret the data
 			http.Error(w, "Provided pairing secret is invalid: "+err.Error(), http.StatusBadRequest)
