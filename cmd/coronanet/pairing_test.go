@@ -4,7 +4,6 @@
 package main
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/coronanet/go-coronanet/rest"
@@ -17,13 +16,13 @@ func TestPairingLifecycle(t *testing.T) {
 	defer alice.close()
 
 	if _, err := alice.InitPairing(); err == nil {
-		t.Errorf("pairing initialized without profile")
+		t.Fatalf("pairing initialized without profile")
 	}
 	alice.CreateProfile()
 	alice.UpdateProfile(&rest.ProfileInfos{Name: "Alice"})
 
 	if _, err := alice.InitPairing(); err == nil {
-		t.Errorf("pairing initialized without networking")
+		t.Fatalf("pairing initialized without networking")
 	}
 	// Enable networking too and ensure pairing can be started, once
 	alice.EnableGateway()
@@ -32,34 +31,34 @@ func TestPairingLifecycle(t *testing.T) {
 		t.Fatalf("failed to initialize pairing: %v", err)
 	}
 	if _, err := alice.InitPairing(); err == nil {
-		t.Errorf("duplicate pairing initialized")
+		t.Fatalf("duplicate pairing initialized")
 	}
 	// Create a pairing joiner and ensure profile and network requirements
-	bob, _ := newTestNode("", "--verbosity", "5", "--hostname", "bob")
+	bob, _ := newTestNode("", "--verbosity", "5", "--hostname", "bobby")
 	defer bob.close()
 
 	if _, err := bob.JoinPairing(secret); err == nil {
-		t.Errorf("pairing joined without profile")
+		t.Fatalf("pairing joined without profile")
 	}
 	bob.CreateProfile()
 	bob.UpdateProfile(&rest.ProfileInfos{Name: "Bob"})
 
 	if _, err := bob.JoinPairing(secret); err == nil {
-		t.Errorf("pairing joined without networking")
+		t.Fatalf("pairing joined without networking")
 	}
 	// Enable networking too and ensure pairing can be joined, once
 	bob.EnableGateway()
-	aliceFP, err := bob.JoinPairing(secret)
-	if err != nil {
-		t.Errorf("failed to join pairing: %v", err)
+	if _, err := bob.JoinPairing(secret); err != nil {
+		t.Fatalf("failed to join pairing: %v", err)
 	}
 	if _, err := bob.JoinPairing(secret); err == nil {
-		t.Errorf("rejoine completed pairing session")
+		t.Fatalf("managed to join finished pairing")
 	}
-	// Wait for the pairing initiator to complete too and cross check identities
-	bobFP, err := alice.WaitPairing()
-	if err != nil {
-		t.Errorf("failed to wait for pairing: %v", err)
+	// Wait for the pairing initiator to complete too
+	if _, err := alice.WaitPairing(); err != nil {
+		t.Fatalf("failed to wait for pairing: %v", err)
 	}
-	fmt.Println(aliceFP, bobFP)
+	if _, err := alice.WaitPairing(); err == nil {
+		t.Fatalf("manged to wait on finished pairing")
+	}
 }

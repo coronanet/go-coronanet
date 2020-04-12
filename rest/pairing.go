@@ -39,22 +39,18 @@ func (api *api) servePairing(w http.ResponseWriter, r *http.Request, logger log.
 	case "GET":
 		// Waits for a pairing session to complete
 		logger.Debug("Requesting waiting for pairing session")
-		switch id, err := api.backend.WaitPairing(); err {
+		switch uid, err := api.backend.WaitPairing(); err {
 		case coronanet.ErrNotPairing:
 			logger.Warn("No pairing session in progress")
 			http.Error(w, "No pairing session in progress", http.StatusForbidden)
+		case coronanet.ErrContactExists:
+			logger.Warn("Remote contact already paired")
+			http.Error(w, "Remote contact already paired", http.StatusConflict)
 		case nil:
 			// Pairing succeeded, try to inject the contact into the backend
-			logger.Debug("Pairing wait completed successfully", "contact", id.Identity.Fingerprint(), "address", id.Address.Fingerprint())
-			switch uid, err := api.backend.AddContact(id); err {
-			case coronanet.ErrContactExists:
-				http.Error(w, "Remote contact already paired", http.StatusConflict)
-			case nil:
-				w.Header().Add("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(uid)
-			default:
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			}
+			logger.Debug("Pairing wait completed successfully", "contact", uid)
+			w.Header().Add("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(uid)
 		default:
 			logger.Error("Pairing session waiting failed", "err", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -76,25 +72,20 @@ func (api *api) servePairing(w http.ResponseWriter, r *http.Request, logger log.
 			http.Error(w, "Provided pairing secret is invalid: not 64 bytes", http.StatusBadRequest)
 			return
 		}
-		switch id, err := api.backend.JoinPairing(blob[:32], blob[32:]); err {
+		switch uid, err := api.backend.JoinPairing(blob[:32], blob[32:]); err {
 		case coronanet.ErrProfileNotFound:
 			logger.Warn("Cannot pair without profile")
 			http.Error(w, "Cannot pair without profile", http.StatusForbidden)
 		case coronanet.ErrNetworkDisabled:
 			logger.Warn("Cannot pair while offline")
 			http.Error(w, "Cannot pair while offline", http.StatusForbidden)
+		case coronanet.ErrContactExists:
+			logger.Warn("Remote contact already paired")
+			http.Error(w, "Remote contact already paired", http.StatusConflict)
 		case nil:
-			// Pairing succeeded, try to inject the contact into the backend
-			logger.Debug("Pairing join completed successfully", "contact", id.Identity.Fingerprint(), "address", id.Address.Fingerprint())
-			switch uid, err := api.backend.AddContact(id); err {
-			case coronanet.ErrContactExists:
-				http.Error(w, "Remote contact already paired", http.StatusConflict)
-			case nil:
-				w.Header().Add("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(uid)
-			default:
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			}
+			logger.Debug("Pairing join completed successfully", "contact", uid)
+			w.Header().Add("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(uid)
 		default:
 			logger.Error("Pairing session joining failed", "err", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)

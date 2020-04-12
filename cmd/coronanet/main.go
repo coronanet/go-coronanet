@@ -36,6 +36,10 @@ func main() {
 	// Enable colored terminal logging
 	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(*verbosityFlag), log.StreamHandler(os.Stderr, log.TerminalFormat(true))))
 
+	logger := log.New()
+	if *hostnameFlag != "" {
+		logger = logger.New("host", *hostnameFlag)
+	}
 	// Create a live backend and expose via REST
 	if *datadirFlag == "" {
 		datadir, err := ioutil.TempDir("", "")
@@ -46,7 +50,7 @@ func main() {
 
 		*datadirFlag = datadir
 	}
-	backend, err := coronanet.NewBackend(*datadirFlag)
+	backend, err := coronanet.NewBackend(*datadirFlag, logger)
 	if err != nil {
 		panic(err)
 	}
@@ -70,5 +74,5 @@ func main() {
 		listener.Close()
 	}()
 	// Everything prepared, run the API server
-	http.Serve(listener, rest.New(*hostnameFlag, backend))
+	http.Serve(listener, rest.New(backend, logger))
 }

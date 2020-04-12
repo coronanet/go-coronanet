@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/coronanet/go-coronanet/tornet"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 // Tests that basic pairing works.
@@ -30,11 +31,11 @@ func TestPairing(t *testing.T) {
 	// Initiate a pairing session and join it with the other identity
 	gateway := tornet.NewMockGateway()
 
-	initPairing, secret, address, err := NewServer(gateway, initRemote)
+	initPairing, secret, address, err := NewServer(gateway, initRemote, log.Root())
 	if err != nil {
 		t.Fatalf("failed to initiate pairing: %v", err)
 	}
-	joinPairing, err := NewClient(gateway, joinRemote, secret, address)
+	joinPairing, err := NewClient(gateway, joinRemote, secret, address, log.Root())
 	if err != nil {
 		t.Fatalf("failed to join pairing: %v", err)
 	}

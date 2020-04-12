@@ -18,8 +18,8 @@ import (
 
 // handleContactV1 is ran when a remote contact connects to us via the `tornet`
 // and negotiates a common `corona` protocol version of 1.
-func (b *Backend) handleContactV1(logger log.Logger, uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder) {
-	err := b.handleContactV1Internal(logger, uid, enc, dec)
+func (b *Backend) handleContactV1(uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder, logger log.Logger) {
+	err := b.handleContactV1Internal(uid, enc, dec, logger)
 	if err != nil {
 		// Something failed horribly, try to send over an error
 		conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
@@ -30,7 +30,7 @@ func (b *Backend) handleContactV1(logger log.Logger, uid tornet.IdentityFingerpr
 
 // handleContactV1Internal is ran when a remote contact connects to us via the tornet
 // and negotiates a common `corona` protocol version of 1.
-func (b *Backend) handleContactV1Internal(logger log.Logger, uid tornet.IdentityFingerprint, enc *gob.Encoder, dec *gob.Decoder) error {
+func (b *Backend) handleContactV1Internal(uid tornet.IdentityFingerprint, enc *gob.Encoder, dec *gob.Decoder, logger log.Logger) error {
 	// Track the peer while connected to allow sending direct updates too
 	b.lock.Lock()
 	if _, ok := b.peerset[uid]; ok {

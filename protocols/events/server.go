@@ -216,7 +216,7 @@ func (s *Server) Terminate() error {
 
 // handleV1 is the network handler for the v1 `event` protocol. This method only
 // demultiplexes the checkin and the data exchange phases.
-func (s *Server) handleV1(logger log.Logger, uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder) {
+func (s *Server) handleV1(uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder, logger log.Logger) {
 	// Add the event id to the logger in case of concurrent events
 	logger = logger.New("event", s.infos.Identity.Fingerprint())
 
@@ -230,15 +230,15 @@ func (s *Server) handleV1(logger log.Logger, uid tornet.IdentityFingerprint, con
 
 	// Depending on the protocol phase, descend into checkin or data exchange
 	if session != nil {
-		s.handleV1CheckIn(logger, uid, conn, enc, dec)
+		s.handleV1CheckIn(uid, conn, enc, dec, logger)
 		return
 	}
-	s.handleV1DataExchange(logger, uid, conn, enc, dec)
+	s.handleV1DataExchange(uid, conn, enc, dec, logger)
 }
 
 // handleV1DataExchange is the network handler for the v1 `event` protocol's
 // data exchange phase.
-func (s *Server) handleV1DataExchange(logger log.Logger, uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder) {
+func (s *Server) handleV1DataExchange(uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder, logger log.Logger) {
 	logger.Info("Running event data exchange")
 
 	// Start processing messages until torn down

@@ -39,7 +39,7 @@ type Pairing struct {
 // and a public address to connect to. It is super unorthodox to reuse the same
 // encryption key in both directions, but it avoids having to send 2 identities
 // to the joiner (which would make QR codes quite unwieldy).
-func NewServer(gateway tornet.Gateway, self tornet.RemoteKeyRing) (*Pairing, tornet.SecretIdentity, tornet.PublicAddress, error) {
+func NewServer(gateway tornet.Gateway, self tornet.RemoteKeyRing, logger log.Logger) (*Pairing, tornet.SecretIdentity, tornet.PublicAddress, error) {
 	// Pairing will be done on an ephemeral channel, create a temporary identity
 	// for it, reusing the same for both directions.
 	identity, err := tornet.GenerateIdentity()
@@ -64,12 +64,14 @@ func NewServer(gateway tornet.Gateway, self tornet.RemoteKeyRing) (*Pairing, tor
 				1: p.handleV1,
 			},
 		}),
+		Logger: logger,
 	})
 	p.server, err = tornet.NewServer(tornet.ServerConfig{
 		Gateway:  gateway,
 		Address:  address,
 		Identity: identity,
 		PeerSet:  p.peerset,
+		Logger:   logger,
 	})
 	if err != nil {
 		p.peerset.Close()
@@ -81,7 +83,7 @@ func NewServer(gateway tornet.Gateway, self tornet.RemoteKeyRing) (*Pairing, tor
 // NewClient creates a temporary tornet client running a pairing protocol and
 // attempts to exchange the real identities of two peers. Internally it uses
 // a pre-distributed ephemeral identity to connect to a temporary side channel.
-func NewClient(gateway tornet.Gateway, self tornet.RemoteKeyRing, identity tornet.SecretIdentity, address tornet.PublicAddress) (*Pairing, error) {
+func NewClient(gateway tornet.Gateway, self tornet.RemoteKeyRing, identity tornet.SecretIdentity, address tornet.PublicAddress, logger log.Logger) (*Pairing, error) {
 	p := &Pairing{
 		self:      self,
 		singleton: make(chan struct{}, 1),
@@ -95,6 +97,7 @@ func NewClient(gateway tornet.Gateway, self tornet.RemoteKeyRing, identity torne
 				1: p.handleV1,
 			},
 		}),
+		Logger: logger,
 	})
 	// TODO(karalabe): Maybe also watch for handshake errors instead of waiting for a timeout
 	if _, err := tornet.DialServer(context.TODO(), tornet.DialConfig{
@@ -128,7 +131,7 @@ func (p *Pairing) Wait(ctx context.Context) (tornet.RemoteKeyRing, error) {
 }
 
 // handleV1 is the handler for the v1 pairing protocol.
-func (p *Pairing) handleV1(logger log.Logger, uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder) {
+func (p *Pairing) handleV1(uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder, logger log.Logger) {
 	// If the pairing already in progress, reject additional peers
 	select {
 	case p.singleton <- struct{}{}:
@@ -165,24 +168,29 @@ func (p *Pairing) handleV1(logger log.Logger, uid tornet.IdentityFingerprint, co
 		case err := <-errc:
 			if err != nil {
 				logger.Warn("Identity exchange failed", "err", err)
+				p.failure = err
 				return
 			}
 		case <-timeout.C:
 			logger.Warn("Identity exchange timed out")
+			p.failure = errors.New("exchange timed out")
 			return
 		}
 	}
 	// Decode the received identity and return
 	if message.Identity == nil {
 		logger.Warn("Missing identity exchange")
+		p.failure = errors.New("missing identity exchange")
 		return
 	}
 	if len(message.Identity.Identity) != ed25519.PublicKeySize {
 		logger.Warn("Invalid remote identity length", "bytes", len(message.Identity.Identity))
+		p.failure = errors.New("invalid remote identity")
 		return
 	}
 	if len(message.Identity.Address) != ed25519.PublicKeySize {
 		logger.Warn("Invalid remote address length", "bytes", len(message.Identity.Address))
+		p.failure = errors.New("invalid remote address")
 		return
 	}
 	p.peer = tornet.RemoteKeyRing{

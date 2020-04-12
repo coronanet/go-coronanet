@@ -10,7 +10,6 @@ import (
 
 	"github.com/coronanet/go-coronanet/protocols/pairing"
 	"github.com/coronanet/go-coronanet/tornet"
-	"github.com/ethereum/go-ethereum/log"
 )
 
 var (
@@ -29,7 +28,7 @@ var (
 
 // InitPairing initiates a new pairing session over Tor.
 func (b *Backend) InitPairing() (tornet.SecretIdentity, tornet.PublicAddress, error) {
-	log.Info("Initiating pairing session")
+	b.logger.Info("Initiating pairing session")
 
 	// Ensure there's a profile to pair and a network to go through
 	profile, err := b.Profile()
@@ -52,7 +51,7 @@ func (b *Backend) InitPairing() (tornet.SecretIdentity, tornet.PublicAddress, er
 		// needed for tests since those spin too fast for Tor to set everything up
 		// and things just fail because of it.
 		for i := 0; i < 60 && !connected; i++ {
-			log.Warn("Waiting for circuits to build", "attempt", i)
+			b.logger.Warn("Waiting for circuits to build", "attempt", i)
 
 			time.Sleep(time.Second)
 			_, connected, _, _, err = b.GatewayStatus()
@@ -76,7 +75,7 @@ func (b *Backend) InitPairing() (tornet.SecretIdentity, tornet.PublicAddress, er
 		Identity: profile.KeyRing.Identity.Public(),
 		Address:  profile.KeyRing.Addresses[len(profile.KeyRing.Addresses)-1].Public(),
 	}
-	pairer, secret, address, err := pairing.NewServer(tornet.NewTorGateway(b.network), keyring)
+	pairer, secret, address, err := pairing.NewServer(tornet.NewTorGateway(b.network), keyring, b.logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -85,37 +84,43 @@ func (b *Backend) InitPairing() (tornet.SecretIdentity, tornet.PublicAddress, er
 }
 
 // WaitPairing blocks until an already initiated pairing session is joined.
-func (b *Backend) WaitPairing() (tornet.RemoteKeyRing, error) {
-	log.Info("Waiting for pairing session")
+func (b *Backend) WaitPairing() (tornet.IdentityFingerprint, error) {
+	b.logger.Info("Waiting for pairing session")
 
 	// Ensure there is a pairing session ongoing
 	b.lock.Lock()
-	defer b.lock.Unlock()
-
-	if b.pairing == nil {
-		return tornet.RemoteKeyRing{}, ErrNotPairing
+	pairing := b.pairing
+	if pairing == nil {
+		b.lock.Unlock()
+		return "", ErrNotPairing
+	} else {
+		b.pairing = nil
 	}
+	b.lock.Unlock()
+
 	// Pairing session in progress, wait for it and tear it down
-	keyring, err := b.pairing.Wait(context.TODO())
-	b.pairing = nil
-	return keyring, err
+	contact, err := pairing.Wait(context.TODO())
+	if err != nil {
+		return "", nil
+	}
+	return b.AddContact(contact)
 }
 
 // JoinPairing joins a remotely initiated pairing session.
-func (b *Backend) JoinPairing(secret tornet.SecretIdentity, address tornet.PublicAddress) (tornet.RemoteKeyRing, error) {
-	log.Info("Joining pairing session", "address", address.Fingerprint(), "identity", secret.Fingerprint())
+func (b *Backend) JoinPairing(secret tornet.SecretIdentity, address tornet.PublicAddress) (tornet.IdentityFingerprint, error) {
+	b.logger.Info("Joining pairing session", "address", address.Fingerprint(), "identity", secret.Fingerprint())
 
 	// Ensure there's a profile to pair and a network to go through
 	profile, err := b.Profile()
 	if err != nil {
-		return tornet.RemoteKeyRing{}, err
+		return "", err
 	}
 	online, connected, _, _, err := b.GatewayStatus()
 	if err != nil {
-		return tornet.RemoteKeyRing{}, err
+		return "", err
 	}
 	if !online {
-		return tornet.RemoteKeyRing{}, ErrNetworkDisabled
+		return "", ErrNetworkDisabled
 	}
 	if online && !connected {
 		// This is problematic. We're supposedly online, but there's no circuit
@@ -126,28 +131,33 @@ func (b *Backend) JoinPairing(secret tornet.SecretIdentity, address tornet.Publi
 		// needed for tests since those spin too fast for Tor to set everything up
 		// and things just fail because of it.
 		for i := 0; i < 60 && !connected; i++ {
-			log.Warn("Waiting for circuits to build", "attempt", i)
+			b.logger.Warn("Waiting for circuits to build", "attempt", i)
 
 			time.Sleep(time.Second)
 			_, connected, _, _, err = b.GatewayStatus()
 			if err != nil {
-				return tornet.RemoteKeyRing{}, err
+				return "", err
 			}
 		}
 	}
 	if !connected {
-		return tornet.RemoteKeyRing{}, errors.New("no circuits available")
+		return "", errors.New("no circuits available")
 	}
-	// Join the remote pairing session and return the results
+	// Join the remote pairing session and wait for completion
 	keyring := tornet.RemoteKeyRing{
 		Identity: profile.KeyRing.Identity.Public(),
 		Address:  profile.KeyRing.Addresses[len(profile.KeyRing.Addresses)-1].Public(),
 	}
-	pairer, err := pairing.NewClient(tornet.NewTorGateway(b.network), keyring, secret, address)
+	pairer, err := pairing.NewClient(tornet.NewTorGateway(b.network), keyring, secret, address, b.logger)
 	if err != nil {
-		return tornet.RemoteKeyRing{}, err
+		return "", err
 	}
-	return pairer.Wait(context.TODO())
+	contact, err := pairer.Wait(context.TODO())
+	if err != nil {
+		return "", err
+	}
+	// Pairing succeeded, start tracking the contact
+	return b.AddContact(contact)
 }
 
 // TODO(karalabe): AbortPairing, otherwise we end up in a weird place

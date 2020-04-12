@@ -17,16 +17,16 @@ import (
 // api is a REST wrapper on top of the Corona Network backend that translates the
 // Go APIs into REST according to the Swagger specs.
 type api struct {
-	hostname string
-	nextreq  uint64
-	backend  *coronanet.Backend
+	nextreq uint64
+	backend *coronanet.Backend
+	logger  log.Logger
 }
 
 // New creates an REST API interface in front of a Corona Network backend.
-func New(hostname string, backend *coronanet.Backend) http.Handler {
+func New(backend *coronanet.Backend, logger log.Logger) http.Handler {
 	return &api{
-		hostname: hostname,
-		backend:  backend,
+		backend: backend,
+		logger:  logger.New("api", "rest"),
 	}
 }
 
@@ -34,12 +34,7 @@ func New(hostname string, backend *coronanet.Backend) http.Handler {
 // exposes all the functionality of the social network via a RESTful interface
 // for react native on a mobile.
 func (api *api) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	logger := log.New()
-	if api.hostname != "" {
-		logger = logger.New("host", api.hostname)
-	}
-	logger = logger.New("api", "rest", "req", atomic.AddUint64(&api.nextreq, 1),
-		"method", r.Method, "path", r.URL.Path)
+	logger := api.logger.New("req", atomic.AddUint64(&api.nextreq, 1), "method", r.Method, "path", r.URL.Path)
 	logger.Trace("API request received")
 
 	defer func(start time.Time) {

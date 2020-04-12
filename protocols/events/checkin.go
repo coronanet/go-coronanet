@@ -82,7 +82,7 @@ func (cs *CheckinSession) Wait(ctx context.Context) error {
 
 // handleV1CheckIn is the network handler for the v1 `event` protocol's checkin
 // phase.
-func (s *Server) handleV1CheckIn(logger log.Logger, uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder) {
+func (s *Server) handleV1CheckIn(uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder, logger log.Logger) {
 	logger.Info("Participant checking in")
 
 	// The entire exchange is time limited, ensure failure if it's exceeded
@@ -139,7 +139,7 @@ func (s *Server) handleV1CheckIn(logger log.Logger, uid tornet.IdentityFingerpri
 
 // handleV1CheckIn is the network handler for the v1 `event` protocol's checkin
 // phase.
-func (c *Client) handleV1CheckIn(logger log.Logger, uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder) {
+func (c *Client) handleV1CheckIn(uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder, logger log.Logger) {
 	logger.Info("Checking in to event", "pseudonym", c.infos.Pseudonym.Fingerprint())
 
 	// The entire exchange is time limited, ensure failure if it's exceeded

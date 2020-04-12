@@ -287,7 +287,7 @@ func (c *Client) loop() {
 
 // handleV1 is the network handler for the v1 `event` protocol. This method only
 // demultiplexes the checkin and the data exchange phases.
-func (c *Client) handleV1(logger log.Logger, uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder) {
+func (c *Client) handleV1(uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder, logger log.Logger) {
 	logger = logger.New("event", c.infos.Identity.Fingerprint())
 
 	c.lock.Lock()
@@ -297,15 +297,15 @@ func (c *Client) handleV1(logger log.Logger, uid tornet.IdentityFingerprint, con
 
 	// Depending on the protocol phase, descend into checkin or data exchange
 	if checkin {
-		c.handleV1CheckIn(logger, uid, conn, enc, dec)
+		c.handleV1CheckIn(uid, conn, enc, dec, logger)
 		return
 	}
-	c.handleV1DataExchange(logger, uid, conn, enc, dec)
+	c.handleV1DataExchange(uid, conn, enc, dec, logger)
 }
 
 // handleV1DataExchange is the network handler for the v1 `event` protocol's
 // data exchange phase.
-func (c *Client) handleV1DataExchange(logger log.Logger, uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder) {
+func (c *Client) handleV1DataExchange(uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder, logger log.Logger) {
 	logger.Info("Running event data exchange")
 
 	// If the event metadata is missing, request it

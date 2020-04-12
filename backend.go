@@ -41,11 +41,12 @@ type Backend struct {
 	checkin map[tornet.IdentityFingerprint]*events.CheckinSession // Active checkin session per hosted event
 	joined  map[tornet.IdentityFingerprint]*events.Client         // Remotely joined and watched events
 
-	lock sync.RWMutex
+	logger log.Logger // Contextual logger to embed outside tags
+	lock   sync.RWMutex
 }
 
 // NewBackend creates a new social network node.
-func NewBackend(datadir string) (*Backend, error) {
+func NewBackend(datadir string, logger log.Logger) (*Backend, error) {
 	// Create the database for accessing locally stored data
 	db, err := leveldb.OpenFile(filepath.Join(datadir, "ldb"), &opt.Options{})
 	if err != nil {
@@ -68,6 +69,7 @@ func NewBackend(datadir string) (*Backend, error) {
 		database: db,
 		network:  net,
 		peerset:  make(map[tornet.IdentityFingerprint]*gob.Encoder),
+		logger:   logger,
 	}
 	backend.dialer = newScheduler(backend)
 
@@ -87,7 +89,7 @@ func NewBackend(datadir string) (*Backend, error) {
 // Note, this method assumes the write lock is held.
 func (b *Backend) initOverlay(keyring tornet.SecretKeyRing) error {
 	// Create the social network node for the contact list
-	log.Info("Creating social node", "addresses", len(keyring.Addresses), "contacts", len(keyring.Trusted))
+	b.logger.Info("Creating social node", "addresses", len(keyring.Addresses), "contacts", len(keyring.Trusted))
 	if b.overlay != nil {
 		panic("overlay double initialized")
 	}
@@ -102,6 +104,7 @@ func (b *Backend) initOverlay(keyring tornet.SecretKeyRing) error {
 			},
 		}),
 		ConnTimeout: connectionIdleTimeout,
+		Logger:      b.logger,
 	})
 	if err != nil {
 		return err
@@ -125,7 +128,7 @@ func (b *Backend) nukeOverlay() error {
 	b.nukeEvents()
 
 	// Tear down the social networking
-	log.Info("Deleting social node")
+	b.logger.Info("Deleting social node")
 	if b.overlay == nil {
 		return nil
 	}
@@ -157,7 +160,7 @@ func (b *Backend) Close() error {
 // EnableGateway opens up the network proxy into the Tor network and starts
 // building out the P2P overlay network on top. The method is async.
 func (b *Backend) EnableGateway() error {
-	log.Info("Enabling gateway networking")
+	b.logger.Info("Enabling gateway networking")
 	if err := b.network.EnableNetwork(context.Background(), false); err != nil {
 		return err
 	}
@@ -179,7 +182,7 @@ func (b *Backend) EnableGateway() error {
 // DisableGateway tears down the P2P overlay network running on top of Tor, breaks
 // all active connections and closes off he network proxy from Tor.
 func (b *Backend) DisableGateway() error {
-	log.Info("Disabling gateway networking")
+	b.logger.Info("Disabling gateway networking")
 	if err := b.network.Control.SetConf(control.KeyVals("DisableNetwork", "1")...); err != nil {
 		return err
 	}

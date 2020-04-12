@@ -12,7 +12,6 @@ import (
 	"github.com/coronanet/go-coronanet/params"
 	"github.com/coronanet/go-coronanet/protocols/events"
 	"github.com/coronanet/go-coronanet/tornet"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
@@ -62,11 +61,11 @@ func (h *eventHost) Banner(event tornet.IdentityFingerprint, server *events.Serv
 func (h *eventHost) OnUpdate(event tornet.IdentityFingerprint, server *events.Server) {
 	blob, err := json.Marshal(server.Infos())
 	if err != nil {
-		log.Error("Failed to marshal event infos", "event", event, "err", err)
+		h.logger.Error("Failed to marshal event infos", "event", event, "err", err)
 		return
 	}
 	if err := h.database.Put(append(dbHostedEventPrefix, event...), blob, nil); err != nil {
-		log.Error("Failed to store event infos", "event", event, "err", err)
+		h.logger.Error("Failed to store event infos", "event", event, "err", err)
 		return
 	}
 }
@@ -75,7 +74,7 @@ func (h *eventHost) OnUpdate(event tornet.IdentityFingerprint, server *events.Se
 // that changes the status of the event. The organizer may store the message
 // for later verification.
 func (h *eventHost) OnReport(event tornet.IdentityFingerprint, server *events.Server, pseudonym tornet.IdentityFingerprint, message string) error {
-	log.Error("Event report handler not implemented", "event", event, "pseudonym", pseudonym, "message", message)
+	h.logger.Error("Event report handler not implemented", "event", event, "pseudonym", pseudonym, "message", message)
 	return nil
 }
 
@@ -94,11 +93,11 @@ func (g *eventGuest) Status(start, end time.Time) (id tornet.SecretIdentity, nam
 func (g *eventGuest) OnUpdate(event tornet.IdentityFingerprint, client *events.Client) {
 	blob, err := json.Marshal(client.Infos())
 	if err != nil {
-		log.Error("Failed to marshal event infos", "event", event, "err", err)
+		g.logger.Error("Failed to marshal event infos", "event", event, "err", err)
 		return
 	}
 	if err := g.database.Put(append(dbJoinedEventPrefix, event...), blob, nil); err != nil {
-		log.Error("Failed to store event infos", "event", event, "err", err)
+		g.logger.Error("Failed to store event infos", "event", event, "err", err)
 		return
 	}
 }
@@ -109,7 +108,7 @@ func (g *eventGuest) OnUpdate(event tornet.IdentityFingerprint, client *events.C
 // forbid it, this is simpler.
 func (g *eventGuest) OnBanner(event tornet.IdentityFingerprint, banner []byte) {
 	if err := (*Backend)(g).uploadJoinedEventBanner(event, banner); err != nil {
-		log.Error("Failed to store event banner", "event", event, "err", err)
+		g.logger.Error("Failed to store event banner", "event", event, "err", err)
 		return
 	}
 }
@@ -119,7 +118,7 @@ func (g *eventGuest) OnBanner(event tornet.IdentityFingerprint, banner []byte) {
 // is in its maintenance period.
 func (b *Backend) initEvents() error {
 	// Sanity check that we're not doing crazy things
-	log.Info("Recreating tracked events")
+	b.logger.Info("Recreating tracked events")
 	if b.hosted != nil {
 		panic("inited events outside of startup")
 	}
@@ -130,7 +129,7 @@ func (b *Backend) initEvents() error {
 			return nil, err
 		}
 		if infos.End != (time.Time{}) && time.Since(infos.End) > params.EventMaintenancePeriod {
-			log.Info("Event exceeded maintenance period", "event", event, "ended", time.Since(infos.End))
+			b.logger.Info("Event exceeded maintenance period", "event", event, "ended", time.Since(infos.End))
 			return nil, nil
 		}
 		return events.RecreateServer((*eventHost)(b), tornet.NewTorGateway(b.network), infos)
@@ -155,7 +154,7 @@ func (b *Backend) initEvents() error {
 			return nil, err
 		}
 		if infos.End != (time.Time{}) && time.Since(infos.End) > params.EventMaintenancePeriod {
-			log.Info("Event exceeded maintenance period", "event", event, "ended", time.Since(infos.End))
+			b.logger.Info("Event exceeded maintenance period", "event", event, "ended", time.Since(infos.End))
 			return nil, nil
 		}
 		return events.RecreateClient((*eventGuest)(b), tornet.NewTorGateway(b.network), infos)
@@ -186,7 +185,7 @@ func (b *Backend) initEvents() error {
 // nukeEvents tears down all the hosted and joined events. This method should be
 // only use on shutdown or when deleting a profile.
 func (b *Backend) nukeEvents() error {
-	log.Info("Stopping tracked events")
+	b.logger.Info("Stopping tracked events")
 	for _, event := range b.hosted {
 		event.Close()
 	}
@@ -202,7 +201,7 @@ func (b *Backend) nukeEvents() error {
 
 // CreateEvent assembles a new Corona Network event server.
 func (b *Backend) CreateEvent(name string) (tornet.IdentityFingerprint, error) {
-	log.Info("Creating new event", "name", name)
+	b.logger.Info("Creating new event", "name", name)
 
 	// THe local user is a participant of all events, make sure it exists
 	if _, err := b.Profile(); err != nil {
@@ -236,7 +235,7 @@ func (b *Backend) CreateEvent(name string) (tornet.IdentityFingerprint, error) {
 // from checking in. It also triggers the maintenance period, after which the server
 // is torn down.
 func (b *Backend) TerminateEvent(event tornet.IdentityFingerprint) error {
-	log.Info("Terminating event", "event", event)
+	b.logger.Info("Terminating event", "event", event)
 
 	// Retrieve the server and mark the event completed
 	b.lock.Lock()
@@ -285,7 +284,7 @@ func (b *Backend) HostedEvent(event tornet.IdentityFingerprint) (*events.ServerI
 
 // UploadHostedEventBanner uploads a new banner picture for the hosted event.
 func (b *Backend) UploadHostedEventBanner(event tornet.IdentityFingerprint, data []byte) error {
-	log.Info("Uploading hosted event banner", "event", event)
+	b.logger.Info("Uploading hosted event banner", "event", event)
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -330,7 +329,7 @@ func (b *Backend) UploadHostedEventBanner(event tornet.IdentityFingerprint, data
 
 // DeleteHostedEventBanner deletes the existing banner picture of the hosted event.
 func (b *Backend) DeleteHostedEventBanner(event tornet.IdentityFingerprint) error {
-	log.Info("Deleting hosted event banner", "event", event)
+	b.logger.Info("Deleting hosted event banner", "event", event)
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -359,7 +358,7 @@ func (b *Backend) DeleteHostedEventBanner(event tornet.IdentityFingerprint) erro
 // InitEventCheckin retrieves the current access and checkin credentials of a
 // hosted event. If none exists, it creates a new one.
 func (b *Backend) InitEventCheckin(event tornet.IdentityFingerprint) (*events.CheckinSession, error) {
-	log.Info("Creating checkin session", "event", event)
+	b.logger.Info("Creating checkin session", "event", event)
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -384,7 +383,7 @@ func (b *Backend) InitEventCheckin(event tornet.IdentityFingerprint) (*events.Ch
 
 // WaitEventCheckin waits for a checkin session to conclude.
 func (b *Backend) WaitEventCheckin(event tornet.IdentityFingerprint) error {
-	log.Info("Waiting for checkin session", "event", event)
+	b.logger.Info("Waiting for checkin session", "event", event)
 
 	// Ensure there is a checkin ongoing
 	b.lock.RLock()
@@ -400,7 +399,7 @@ func (b *Backend) WaitEventCheckin(event tornet.IdentityFingerprint) error {
 
 // JoinEventCheckin joins a remotely initiated event checkin process.
 func (b *Backend) JoinEventCheckin(id tornet.PublicIdentity, address tornet.PublicAddress, auth tornet.SecretIdentity) error {
-	log.Info("Joining for checkin session", "event", id.Fingerprint())
+	b.logger.Info("Joining for checkin session", "event", id.Fingerprint())
 
 	if b.overlay == nil {
 		return ErrNetworkDisabled
@@ -460,7 +459,7 @@ func (b *Backend) JoinedEvent(event tornet.IdentityFingerprint) (*events.ClientI
 
 // uploadJoinedEventBanner uploads a new banner picture for the joined event.
 func (b *Backend) uploadJoinedEventBanner(event tornet.IdentityFingerprint, data []byte) error {
-	log.Info("Uploading joined event banner", "event", event)
+	b.logger.Info("Uploading joined event banner", "event", event)
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
