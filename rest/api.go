@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+
+	"github.com/coronanet/go-coronanet/protocols/events"
 )
 
 // API is a tiny Go client for the Corona Network REST APIs. The purpose is to
@@ -31,10 +33,16 @@ func (api *API) GatewayStatus() (*GatewayStatus, error) {
 	}
 	return status, nil
 }
-func (api *API) EnableGateway() error  { return api.run("PUT", "/gateway", nil, nil) }
-func (api *API) DisableGateway() error { return api.run("DELETE", "/gateway", nil, nil) }
+func (api *API) EnableGateway() error {
+	return api.run("PUT", "/gateway", nil, nil)
+}
+func (api *API) DisableGateway() error {
+	return api.run("DELETE", "/gateway", nil, nil)
+}
 
-func (api *API) CreateProfile() error { return api.run("POST", "/profile", nil, nil) }
+func (api *API) CreateProfile() error {
+	return api.run("POST", "/profile", nil, nil)
+}
 func (api *API) Profile() (*ProfileInfos, error) {
 	profile := new(ProfileInfos)
 	if err := api.run("GET", "/profile", nil, profile); err != nil {
@@ -67,6 +75,58 @@ func (api *API) WaitPairing() (string, error) {
 		return "", err
 	}
 	return contact, nil
+}
+
+func (api *API) HostedEvents() ([]string, error) {
+	var events []string
+	if err := api.run("GET", "/events/hosted", nil, &events); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+func (api *API) CreateEvent(config *EventConfig) (string, error) {
+	var event string
+	if err := api.run("POST", "/events/hosted", config, &event); err != nil {
+		return "", err
+	}
+	return event, nil
+}
+func (api *API) HostedEvent(id string) (*events.Stats, error) {
+	stats := new(events.Stats)
+	if err := api.run("GET", "/events/hosted/"+id, nil, stats); err != nil {
+		return nil, err
+	}
+	return stats, nil
+}
+func (api *API) TerminateEvent(id string) error {
+	return api.run("DELETE", "/events/hosted/"+id, nil, nil)
+}
+func (api *API) InitEventCheckin(id string) (string, error) {
+	var secret string
+	if err := api.run("POST", "/events/hosted/"+id+"/checkin", nil, &secret); err != nil {
+		return "", err
+	}
+	return secret, nil
+}
+func (api *API) WaitEventCheckin(id string) error {
+	return api.run("GET", "/events/hosted/"+id+"/checkin", nil, nil)
+}
+func (api *API) JoinEventCheckin(secret string) error {
+	return api.run("POST", "/events/joined", secret, nil)
+}
+func (api *API) JoinedEvents() ([]string, error) {
+	var events []string
+	if err := api.run("GET", "/events/joined", nil, &events); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+func (api *API) JoinedEvent(id string) (*events.Stats, error) {
+	stats := new(events.Stats)
+	if err := api.run("GET", "/events/joined/"+id, nil, stats); err != nil {
+		return nil, err
+	}
+	return stats, nil
 }
 
 // run creates an API requests of the given type and sends over a JSON encoded

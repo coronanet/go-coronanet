@@ -478,16 +478,12 @@ paths:
         400:
           description: Provided event credentials are invalid
         403:
-          description: Cannot checkin while offline
+          description: Cannot checkin while offline or without profile
         409:
           description: Remote event already joined
         200:
           description: Successfully checked in to event
-          content:
-            application/json:
-              schema:
-                type: string
-                description: Permenent event ID
+          content: {}
 
 
   /events/joined/{id}:

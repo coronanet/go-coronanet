@@ -132,7 +132,7 @@ func (b *Backend) initEvents() error {
 			b.logger.Info("Event exceeded maintenance period", "event", event, "ended", time.Since(infos.End))
 			return nil, nil
 		}
-		return events.RecreateServer((*eventHost)(b), tornet.NewTorGateway(b.network), infos)
+		return events.RecreateServer((*eventHost)(b), tornet.NewTorGateway(b.network), infos, b.logger)
 	}
 	hosted := make(map[tornet.IdentityFingerprint]*events.Server)
 	for _, event := range b.HostedEvents() {
@@ -157,7 +157,7 @@ func (b *Backend) initEvents() error {
 			b.logger.Info("Event exceeded maintenance period", "event", event, "ended", time.Since(infos.End))
 			return nil, nil
 		}
-		return events.RecreateClient((*eventGuest)(b), tornet.NewTorGateway(b.network), infos)
+		return events.RecreateClient((*eventGuest)(b), tornet.NewTorGateway(b.network), infos, b.logger)
 	}
 	joined := make(map[tornet.IdentityFingerprint]*events.Client)
 	for _, event := range b.JoinedEvents() {
@@ -207,7 +207,7 @@ func (b *Backend) CreateEvent(name string) (tornet.IdentityFingerprint, error) {
 	if _, err := b.Profile(); err != nil {
 		return "", err
 	}
-	server, err := events.CreateServer((*eventHost)(b), tornet.NewTorGateway(b.network), name, [32]byte{})
+	server, err := events.CreateServer((*eventHost)(b), tornet.NewTorGateway(b.network), name, [32]byte{}, b.logger)
 	if err != nil {
 		return "", err
 	}
@@ -360,12 +360,38 @@ func (b *Backend) DeleteHostedEventBanner(event tornet.IdentityFingerprint) erro
 func (b *Backend) InitEventCheckin(event tornet.IdentityFingerprint) (*events.CheckinSession, error) {
 	b.logger.Info("Creating checkin session", "event", event)
 
+	// Ensure there's a network to go through
+	online, connected, _, _, err := b.GatewayStatus()
+	if err != nil {
+		return nil, err
+	}
+	if !online {
+		return nil, ErrNetworkDisabled
+	}
+	if online && !connected {
+		// This is problematic. We're supposedly online, but there's no circuit
+		// yet. The happy case is that the gateway was just enabled, so let's
+		// wait a bit and hope.
+		//
+		// This might not be too useful during live operation, but it's something
+		// needed for tests since those spin too fast for Tor to set everything up
+		// and things just fail because of it.
+		for i := 0; i < 60 && !connected; i++ {
+			b.logger.Warn("Waiting for circuits to build", "attempt", i)
+
+			time.Sleep(time.Second)
+			_, connected, _, _, err = b.GatewayStatus()
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	if !connected {
+		return nil, errors.New("no circuits available")
+	}
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
-	if b.overlay == nil {
-		return nil, ErrNetworkDisabled
-	}
 	server, ok := b.hosted[event]
 	if !ok {
 		return nil, ErrEventNotFound
@@ -401,13 +427,42 @@ func (b *Backend) WaitEventCheckin(event tornet.IdentityFingerprint) error {
 func (b *Backend) JoinEventCheckin(id tornet.PublicIdentity, address tornet.PublicAddress, auth tornet.SecretIdentity) error {
 	b.logger.Info("Joining for checkin session", "event", id.Fingerprint())
 
-	if b.overlay == nil {
+	// Ensure there's a profile to check in with and a network to go through
+	if _, err := b.Profile(); err != nil {
+		return err
+	}
+	online, connected, _, _, err := b.GatewayStatus()
+	if err != nil {
+		return err
+	}
+	if !online {
 		return ErrNetworkDisabled
+	}
+	if online && !connected {
+		// This is problematic. We're supposedly online, but there's no circuit
+		// yet. The happy case is that the gateway was just enabled, so let's
+		// wait a bit and hope.
+		//
+		// This might not be too useful during live operation, but it's something
+		// needed for tests since those spin too fast for Tor to set everything up
+		// and things just fail because of it.
+		for i := 0; i < 60 && !connected; i++ {
+			b.logger.Warn("Waiting for circuits to build", "attempt", i)
+
+			time.Sleep(time.Second)
+			_, connected, _, _, err = b.GatewayStatus()
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if !connected {
+		return errors.New("no circuits available")
 	}
 	if _, err := b.JoinedEvent(id.Fingerprint()); err == nil {
 		return ErrEventAlreadyJoined
 	}
-	client, err := events.CreateClient((*eventGuest)(b), tornet.NewTorGateway(b.network), id, address, auth)
+	client, err := events.CreateClient((*eventGuest)(b), tornet.NewTorGateway(b.network), id, address, auth, b.logger)
 	if err != nil {
 		return err
 	}

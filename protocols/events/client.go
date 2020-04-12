@@ -86,12 +86,13 @@ type Client struct {
 	teardown   chan chan struct{} // Termination channel to stop future dials
 	terminated chan struct{}      // Termination notification channel to unblock update
 
-	lock sync.RWMutex // Mutex protecting the stats from simultaneous updates
+	logger log.Logger   // Contextual logger to allow adding optional tags
+	lock   sync.RWMutex // Mutex protecting the stats from simultaneous updates
 }
 
 // CreateClient creates a brand new event client with the given identity and
 // address, generating a new pseudonym for checking in with.
-func CreateClient(guest Guest, gateway tornet.Gateway, identity tornet.PublicIdentity, address tornet.PublicAddress, checkin tornet.SecretIdentity) (*Client, error) {
+func CreateClient(guest Guest, gateway tornet.Gateway, identity tornet.PublicIdentity, address tornet.PublicAddress, checkin tornet.SecretIdentity, logger log.Logger) (*Client, error) {
 	pseudonym, err := tornet.GenerateIdentity()
 	if err != nil {
 		return nil, err
@@ -101,12 +102,12 @@ func CreateClient(guest Guest, gateway tornet.Gateway, identity tornet.PublicIde
 		Address:   address,
 		Checkin:   checkin,
 		Pseudonym: pseudonym,
-	})
+	}, logger)
 }
 
 // RecreateClient reloads a previously existent event client from a persisted
 // configuration dump.
-func RecreateClient(guest Guest, gateway tornet.Gateway, infos *ClientInfos) (*Client, error) {
+func RecreateClient(guest Guest, gateway tornet.Gateway, infos *ClientInfos, logger log.Logger) (*Client, error) {
 	client := &Client{
 		guest:      guest,
 		gateway:    gateway,
@@ -115,6 +116,7 @@ func RecreateClient(guest Guest, gateway tornet.Gateway, infos *ClientInfos) (*C
 		suspend:    make(chan bool),
 		teardown:   make(chan chan struct{}),
 		terminated: make(chan struct{}),
+		logger:     logger,
 	}
 	client.peerset = tornet.NewPeerSet(tornet.PeerSetConfig{
 		Trusted: []tornet.PublicIdentity{infos.Identity},
@@ -125,6 +127,7 @@ func RecreateClient(guest Guest, gateway tornet.Gateway, infos *ClientInfos) (*C
 			},
 		}),
 		Timeout: connectionIdleTimeout,
+		Logger:  logger,
 	})
 	// If the client is not yet checked in, do it now before returning the client
 	if client.infos.Checkin != nil {
@@ -155,7 +158,7 @@ func RecreateClient(guest Guest, gateway tornet.Gateway, infos *ClientInfos) (*C
 	// Client surely checked in, start the event update loop
 	go client.loop()
 
-	log.Info("Created event client", "event", client.infos.Identity.Fingerprint(), "name", client.infos.Name)
+	logger.Info("Created event client", "event", client.infos.Identity.Fingerprint(), "name", client.infos.Name)
 	return client, nil
 }
 
@@ -217,7 +220,7 @@ func (c *Client) loop() {
 		nextDial = time.NewTimer(0)
 		nextPrio = params.EventStatsRecheck
 	)
-	logger := log.New("event", c.infos.Identity.Fingerprint())
+	logger := c.logger.New("event", c.infos.Identity.Fingerprint())
 	for {
 		select {
 		case quit := <-c.teardown:

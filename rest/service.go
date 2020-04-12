@@ -51,7 +51,7 @@ func (api *api) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, "/contacts"):
 		api.serveContacts(w, r, strings.TrimPrefix(r.URL.Path, "/contacts"))
 	case strings.HasPrefix(r.URL.Path, "/events"):
-		api.serveEvents(w, r, strings.TrimPrefix(r.URL.Path, "/events"))
+		api.serveEvents(w, r, strings.TrimPrefix(r.URL.Path, "/events"), logger)
 	case strings.HasPrefix(r.URL.Path, "/cdn"):
 		api.serveCDN(w, r, strings.TrimPrefix(r.URL.Path, "/cdn"))
 	default:

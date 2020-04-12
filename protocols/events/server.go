@@ -75,12 +75,13 @@ type Server struct {
 	peerset *tornet.PeerSet // Peer set handling remote connections
 	server  *tornet.Server  // Ephemeral pairing server through the Tor network
 
-	lock sync.RWMutex // Mutex protecting the stats from simultaneous updates
+	logger log.Logger   // Contextual logger to allow adding optional tags
+	lock   sync.RWMutex // Mutex protecting the stats from simultaneous updates
 }
 
 // CreateServer creates a brand new event server with the given matadata and a
 // new random identity and address.
-func CreateServer(host Host, gateway tornet.Gateway, name string, banner [32]byte) (*Server, error) {
+func CreateServer(host Host, gateway tornet.Gateway, name string, banner [32]byte, logger log.Logger) (*Server, error) {
 	// Generate the permanent identities of the event
 	identity, err := tornet.GenerateIdentity()
 	if err != nil {
@@ -102,12 +103,12 @@ func CreateServer(host Host, gateway tornet.Gateway, name string, banner [32]byt
 		Banner:       banner,
 		Start:        time.Now(),
 		Updated:      time.Now(),
-	})
+	}, logger)
 }
 
 // RecreateServer reloads a previously existent event server from a persisted
 // configuration dump.
-func RecreateServer(host Host, gateway tornet.Gateway, infos *ServerInfos) (*Server, error) {
+func RecreateServer(host Host, gateway tornet.Gateway, infos *ServerInfos, logger log.Logger) (*Server, error) {
 	// Assemble the server, ready to be published
 	trusted := make([]tornet.PublicIdentity, 0, len(infos.Participants)+1)
 	for _, id := range infos.Participants {
@@ -117,6 +118,7 @@ func RecreateServer(host Host, gateway tornet.Gateway, infos *ServerInfos) (*Ser
 		host:     host,
 		infos:    infos,
 		checkins: make(map[tornet.IdentityFingerprint]*CheckinSession),
+		logger:   logger,
 	}
 	// Start the server to accept inbound connections
 	server.peerset = tornet.NewPeerSet(tornet.PeerSetConfig{
@@ -128,6 +130,7 @@ func RecreateServer(host Host, gateway tornet.Gateway, infos *ServerInfos) (*Ser
 			},
 		}),
 		Timeout: connectionIdleTimeout,
+		Logger:  logger,
 	})
 	var err error
 	server.server, err = tornet.NewServer(tornet.ServerConfig{
@@ -135,12 +138,13 @@ func RecreateServer(host Host, gateway tornet.Gateway, infos *ServerInfos) (*Ser
 		Address:  server.infos.Address,
 		Identity: server.infos.Identity,
 		PeerSet:  server.peerset,
+		Logger:   logger,
 	})
 	if err != nil {
 		server.peerset.Close()
 		return nil, err
 	}
-	log.Info("Created event server", "event", server.infos.Identity.Fingerprint(), "name", server.infos.Name)
+	logger.Info("Created event server", "event", server.infos.Identity.Fingerprint(), "name", server.infos.Name)
 	return server, nil
 }
 
@@ -230,7 +234,7 @@ func (s *Server) handleV1(uid tornet.IdentityFingerprint, conn net.Conn, enc *go
 
 	// Depending on the protocol phase, descend into checkin or data exchange
 	if session != nil {
-		s.handleV1CheckIn(uid, conn, enc, dec, logger)
+		session.result <- s.handleV1CheckIn(uid, conn, enc, dec, logger)
 		return
 	}
 	s.handleV1DataExchange(uid, conn, enc, dec, logger)
