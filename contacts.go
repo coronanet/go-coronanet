@@ -8,7 +8,6 @@ import (
 	"errors"
 
 	"github.com/coronanet/go-coronanet/tornet"
-	"github.com/ethereum/go-ethereum/log"
 )
 
 var (
@@ -37,7 +36,7 @@ type contact struct {
 // AddContact inserts a new remote identity into the local trust ring and adds
 // it to the overlay network.
 func (b *Backend) AddContact(keyring tornet.RemoteKeyRing) (tornet.IdentityFingerprint, error) {
-	log.Info("Creating new contact", "contact", keyring.Identity.Fingerprint())
+	b.logger.Info("Creating new contact", "contact", keyring.Identity.Fingerprint())
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -69,7 +68,7 @@ func (b *Backend) AddContact(keyring tornet.RemoteKeyRing) (tornet.IdentityFinge
 // DeleteContact removes the contact from the trust ring, deletes all associated
 // data and disconnects any active connections.
 func (b *Backend) DeleteContact(uid tornet.IdentityFingerprint) error {
-	log.Info("Deleting contact", "contact", uid)
+	b.logger.Info("Deleting contact", "contact", uid)
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -117,7 +116,7 @@ func (b *Backend) Contact(uid tornet.IdentityFingerprint) (*contact, error) {
 
 // UpdateContact overrides the profile information of an existing remote user.
 func (b *Backend) UpdateContact(uid tornet.IdentityFingerprint, name string) error {
-	log.Info("Updating contact infos", "contact", uid, "name", name)
+	b.logger.Info("Updating contact infos", "contact", uid, "name", name)
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -142,7 +141,7 @@ func (b *Backend) UpdateContact(uid tornet.IdentityFingerprint, name string) err
 
 // uploadContactPicture uploads a new local profile picture for the remote user.
 func (b *Backend) uploadContactPicture(uid tornet.IdentityFingerprint, data []byte) error {
-	log.Info("Uploading contact picture", "contact", uid)
+	b.logger.Info("Uploading contact picture", "contact", uid)
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -177,7 +176,7 @@ func (b *Backend) uploadContactPicture(uid tornet.IdentityFingerprint, data []by
 
 // deleteContactPicture deletes the existing local profile picture of the remote user.
 func (b *Backend) deleteContactPicture(uid tornet.IdentityFingerprint) error {
-	log.Info("Deleting contact picture", "contact", uid)
+	b.logger.Info("Deleting contact picture", "contact", uid)
 
 	b.lock.Lock()
 	defer b.lock.Unlock()

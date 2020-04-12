@@ -9,7 +9,6 @@ import (
 
 	"github.com/coronanet/go-coronanet/protocols/corona"
 	"github.com/coronanet/go-coronanet/tornet"
-	"github.com/ethereum/go-ethereum/log"
 )
 
 // schedulerRequest is a request towards the scheduler to establish contact with
@@ -107,13 +106,14 @@ func (s *scheduler) loop() {
 			}
 		}
 		if !earliest.IsZero() {
-			log.Debug("Next dialing scheduled", "time", time.Until(earliest))
+			s.backend.logger.Debug("Next dialing scheduled", "time", time.Until(earliest))
 			nextTime.Reset(time.Until(earliest))
 			nextChan = nextTime.C
 		}
 		// Listen for scheduling requests or keyring updates
 		select {
-		case <-s.teardown:
+		case quit := <-s.teardown:
+			quit <- struct{}{}
 			return
 
 		case keyring := <-s.keyring:
@@ -121,13 +121,13 @@ func (s *scheduler) loop() {
 			// remove anyone gone missing.
 			for uid := range keyring.Trusted {
 				if _, ok := schedule[uid]; !ok {
-					log.Debug("Scheduling dial for new contact", "contact", uid)
+					s.backend.logger.Debug("Scheduling dial for new contact", "contact", uid)
 					schedule[uid] = time.Now()
 				}
 			}
 			for uid := range schedule {
 				if _, ok := keyring.Trusted[uid]; !ok {
-					log.Debug("Unscheduling dial for dropped contact", "contact", uid)
+					s.backend.logger.Debug("Unscheduling dial for dropped contact", "contact", uid)
 					delete(schedule, uid)
 				}
 			}
@@ -140,12 +140,12 @@ func (s *scheduler) loop() {
 				old := time.Until(had)
 				switch {
 				case !ok:
-					log.Error("Reschedule requested for unknown contact", "contact", uid, "schedule", req.request)
+					s.backend.logger.Error("Reschedule requested for unknown contact", "contact", uid, "schedule", req.request)
 				case old > req.request:
-					log.Debug("Rescheduling dial or earlier time", "contact", uid, "old", old, "new", req.request)
+					s.backend.logger.Debug("Rescheduling dial or earlier time", "contact", uid, "old", old, "new", req.request)
 					schedule[nextDial] = time.Now().Add(req.request)
 				default:
-					log.Trace("Reschedule to later time ignored", "contact", uid, "old", old, "new", req.request)
+					s.backend.logger.Trace("Reschedule to later time ignored", "contact", uid, "old", old, "new", req.request)
 				}
 			}
 
@@ -160,16 +160,16 @@ func (s *scheduler) loop() {
 			if overlay == nil {
 				// This can only happen if the overlay was torn down at the exact
 				// instance some dial triggered (and before the keyring was nuked).
-				log.Warn("Scheduler triggered without overlay")
+				s.backend.logger.Warn("Scheduler triggered without overlay")
 				continue
 			}
-			log.Debug("Scheduling dial for contact", "contact", nextDial)
+			s.backend.logger.Debug("Scheduling dial for contact", "contact", nextDial)
 			if _, err := overlay.Dial(context.TODO(), nextDial); err != nil {
-				log.Error("Dial request failed", "contact", nextDial, "schedule", schedulerFailureRedial, "err", err)
+				s.backend.logger.Error("Dial request failed", "contact", nextDial, "schedule", schedulerFailureRedial, "err", err)
 				schedule[nextDial] = time.Now().Add(schedulerFailureRedial)
 			} else {
 				// Dialing succeeded, unless someone has anything important, check back tomorrow
-				log.Debug("Dialing succeeded, rescheduling", "contact", nextDial, "schedule", schedulerSanityRedial)
+				s.backend.logger.Debug("Dialing succeeded, rescheduling", "contact", nextDial, "schedule", schedulerSanityRedial)
 				schedule[nextDial] = time.Now().Add(schedulerSanityRedial)
 			}
 		}
@@ -182,7 +182,7 @@ func (b *Backend) broadcast(message *corona.Envelope, priority time.Duration) {
 	// Retrieve the list of contacts to broadcast to
 	prof, err := b.Profile()
 	if err != nil {
-		log.Error("Broadcasting without profile", "err", err)
+		b.logger.Error("Broadcasting without profile", "err", err)
 		return
 	}
 	// Send to everyone online, gather anyone offline

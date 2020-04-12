@@ -8,6 +8,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/ethereum/go-ethereum/log"
 )
 
 // Test that nodes without remote peers don't choke on anything.
@@ -52,7 +54,7 @@ func TestNodeConnectivity(t *testing.T) {
 	node1, _ := NewNode(NodeConfig{
 		Gateway: gateway,
 		KeyRing: keyring1,
-		ConnHandler: func(id IdentityFingerprint, conn net.Conn) {
+		ConnHandler: func(id IdentityFingerprint, conn net.Conn, logger log.Logger) {
 			notify1 <- struct{}{}
 		},
 	})
@@ -62,7 +64,7 @@ func TestNodeConnectivity(t *testing.T) {
 	node2, _ := NewNode(NodeConfig{
 		Gateway: gateway,
 		KeyRing: keyring2,
-		ConnHandler: func(id IdentityFingerprint, conn net.Conn) {
+		ConnHandler: func(id IdentityFingerprint, conn net.Conn, logger log.Logger) {
 			notify2 <- struct{}{}
 		},
 	})
@@ -108,7 +110,7 @@ func TestNodeTrustManagement(t *testing.T) {
 		Gateway:     gateway,
 		KeyRing:     keyring1,
 		RingHandler: func(keyring SecretKeyRing) {},
-		ConnHandler: func(id IdentityFingerprint, conn net.Conn) {},
+		ConnHandler: func(id IdentityFingerprint, conn net.Conn, logger log.Logger) {},
 	})
 	defer node1.Close()
 
@@ -117,7 +119,7 @@ func TestNodeTrustManagement(t *testing.T) {
 	node2, _ := NewNode(NodeConfig{
 		Gateway: gateway,
 		KeyRing: keyring2,
-		ConnHandler: func(id IdentityFingerprint, conn net.Conn) {
+		ConnHandler: func(id IdentityFingerprint, conn net.Conn, logger log.Logger) {
 			notify <- struct{}{}
 		},
 	})

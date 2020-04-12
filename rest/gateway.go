@@ -6,11 +6,13 @@ package rest
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/ethereum/go-ethereum/log"
 )
 
-// gatewayStatus is the response struct sent back to the client when requesting
+// GatewayStatus is the response struct sent back to the client when requesting
 // the current status of the Corona Network P2P gateway.
-type gatewayStatus struct {
+type GatewayStatus struct {
 	Enabled   bool `json:"enabled"`
 	Connected bool `json:"connected"`
 	Bandwidth struct {
@@ -20,15 +22,16 @@ type gatewayStatus struct {
 }
 
 // serveGateway serves API calls concerning the P2P gateway.
-func (api *api) serveGateway(w http.ResponseWriter, r *http.Request) {
+func (api *api) serveGateway(w http.ResponseWriter, r *http.Request, logger log.Logger) {
 	switch r.Method {
 	case "GET":
 		// Retrieves the current status of the Corona Network gateway
+		logger.Trace("Retrieving gateway status")
 		var (
-			status gatewayStatus
+			status GatewayStatus
 			err    error
 		)
-		status.Enabled, status.Connected, status.Bandwidth.Ingress, status.Bandwidth.Egress, err = api.backend.Status()
+		status.Enabled, status.Connected, status.Bandwidth.Ingress, status.Bandwidth.Egress, err = api.backend.GatewayStatus()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -39,7 +42,7 @@ func (api *api) serveGateway(w http.ResponseWriter, r *http.Request) {
 
 	case "PUT":
 		// Requests the gateway to connect to the Corona Network
-		if err := api.backend.Enable(); err != nil {
+		if err := api.backend.EnableGateway(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -48,7 +51,7 @@ func (api *api) serveGateway(w http.ResponseWriter, r *http.Request) {
 	case "DELETE":
 		// Ping the backend to disable itself, don't care if it's running or not,
 		// keeps things stateless
-		if err := api.backend.Disable(); err != nil {
+		if err := api.backend.DisableGateway(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

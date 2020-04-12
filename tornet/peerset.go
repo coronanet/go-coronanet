@@ -21,13 +21,15 @@ import (
 const protocolMagic = "COVID-19"
 
 // ConnHandler is a network callback for authenticated connections.
-type ConnHandler func(id IdentityFingerprint, conn net.Conn)
+type ConnHandler func(id IdentityFingerprint, conn net.Conn, logger log.Logger)
 
 // PeerSetConfig can be used to fine tune the initial setup of a tornet peerset.
 type PeerSetConfig struct {
 	Trusted []PublicIdentity // Initial set of trusted authorizations
 	Handler ConnHandler      // Handler to run for each added connection
 	Timeout time.Duration    // Maximum idle time after which to disconnect
+
+	Logger log.Logger // Logger to allow injecting pre-networking context
 }
 
 // PeerSet is a collection of live network connections through Tor. It's purpose
@@ -41,7 +43,8 @@ type PeerSet struct {
 	auths map[IdentityFingerprint]PublicIdentity // Remote identities for inbound dials
 	conns map[IdentityFingerprint]net.Conn       // Currently live remote connections
 
-	lock sync.RWMutex // Lock protecting the set's internals
+	logger log.Logger   // Contextual logger with optional embedded tags
+	lock   sync.RWMutex // Lock protecting the set's internals
 }
 
 // NewPeerSet create an empty peer set, pre-authorized with a set of cryptographic
@@ -52,9 +55,13 @@ func NewPeerSet(config PeerSetConfig) *PeerSet {
 		timeout: config.Timeout,
 		auths:   make(map[IdentityFingerprint]PublicIdentity),
 		conns:   make(map[IdentityFingerprint]net.Conn),
+		logger:  config.Logger,
 	}
 	for _, auth := range config.Trusted {
 		peerset.auths[auth.Fingerprint()] = auth
+	}
+	if peerset.logger == nil {
+		peerset.logger = log.Root()
 	}
 	return peerset
 }
@@ -83,7 +90,7 @@ func (ps *PeerSet) handle(conn net.Conn, done chan error) {
 
 	// Before doing anything, run the TLS handshake
 	if err := conn.(*tls.Conn).Handshake(); err != nil {
-		log.Warn("Remote connection failed authentication", "err", err)
+		ps.logger.Warn("Remote connection failed authentication", "err", err)
 		done <- err
 		return
 	}
@@ -91,7 +98,7 @@ func (ps *PeerSet) handle(conn net.Conn, done chan error) {
 	pub := conn.(*tls.Conn).ConnectionState().PeerCertificates[0].PublicKey
 	uid := PublicIdentity(pub.(ed25519.PublicKey)).Fingerprint()
 
-	logger := log.New("peer", uid)
+	logger := ps.logger.New("peer", uid)
 
 	ps.lock.Lock()
 	if _, ok := ps.auths[uid]; !ok {
@@ -155,7 +162,7 @@ func (ps *PeerSet) handle(conn net.Conn, done chan error) {
 	if ps.timeout != 0 {
 		conn = newBreaker(conn, ps.timeout)
 	}
-	ps.handler(uid, conn)
+	ps.handler(uid, conn, ps.logger)
 	done <- nil
 }
 

@@ -12,74 +12,91 @@ import (
 	"strings"
 
 	"github.com/coronanet/go-coronanet"
+	"github.com/ethereum/go-ethereum/log"
 )
 
-// profileInfos is the response struct sent back to the client when requesting
+// ProfileInfos is the response struct sent back to the client when requesting
 // a user profile from the Corona Network.
-type profileInfos struct {
+type ProfileInfos struct {
 	Name string `json:"name"`
 }
 
 // serveProfile serves API calls concerning the local user profile.
-func (api *api) serveProfile(w http.ResponseWriter, r *http.Request, path string) {
+func (api *api) serveProfile(w http.ResponseWriter, r *http.Request, path string, logger log.Logger) {
 	switch {
 	case path == "":
-		api.serveProfileInfo(w, r)
+		api.serveProfileInfo(w, r, logger)
 	case strings.HasPrefix(path, "/avatar"):
-		api.serveProfileAvatar(w, r, strings.TrimPrefix(path, "/avatar"))
+		api.serveProfileAvatar(w, r, logger)
 	default:
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 	}
 }
 
 // serveProfileInfo serves API calls concerning the local user's profile infos.
-func (api *api) serveProfileInfo(w http.ResponseWriter, r *http.Request) {
+func (api *api) serveProfileInfo(w http.ResponseWriter, r *http.Request, logger log.Logger) {
 	switch r.Method {
 	case "POST":
 		// Create a new local user
+		logger.Debug("Requesting profile creation")
 		switch err := api.backend.CreateProfile(); err {
 		case coronanet.ErrProfileExists:
+			logger.Warn("Local user already exists")
 			http.Error(w, "Local user already exists", http.StatusConflict)
 		case nil:
+			logger.Debug("Profile successfully created")
 			w.WriteHeader(http.StatusOK)
 		default:
+			logger.Error("Profile creation failed", "err", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
 	case "GET":
 		// Retrieves the local user's profile
+		logger.Debug("Requesting profile information")
 		switch profile, err := api.backend.Profile(); err {
 		case coronanet.ErrProfileNotFound:
+			logger.Warn("Local user doesn't exist")
 			http.Error(w, "Local user doesn't exist", http.StatusNotFound)
 		case nil:
+			logger.Debug("Profile successfully retrieved", "name", profile.Name)
 			w.Header().Add("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(&profileInfos{Name: profile.Name})
+			json.NewEncoder(w).Encode(&ProfileInfos{Name: profile.Name})
 		default:
+			logger.Error("Profile retrieval failed", "err", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
 	case "PUT":
 		// Updates the local user's profile
-		profile := new(profileInfos)
+		logger.Debug("Requesting profile update")
+		profile := new(ProfileInfos)
 		if err := json.NewDecoder(r.Body).Decode(profile); err != nil {
+			logger.Error("Provided profile is invalid", "err", err)
 			http.Error(w, "Provided profile is invalid: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		switch err := api.backend.UpdateProfile(profile.Name); err {
 		case coronanet.ErrProfileNotFound:
+			logger.Warn("Local user doesn't exist")
 			http.Error(w, "Local user doesn't exist", http.StatusForbidden)
 		case nil:
+			logger.Debug("Profile successfully updated")
 			w.WriteHeader(http.StatusOK)
 		default:
+			logger.Error("Profile updating failed", "err", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
 	case "DELETE":
 		// Deletes the local user (nukes all data)
+		logger.Debug("Requesting profile deletion")
 		if err := api.backend.DeleteProfile(); err != nil {
+			logger.Error("Profile deletion failed", "err", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		logger.Debug("Profile successfully deleted")
 		w.WriteHeader(http.StatusOK)
 
 	default:
@@ -88,7 +105,7 @@ func (api *api) serveProfileInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveProfileAvatar serves API calls concerning local user's profile picture.
-func (api *api) serveProfileAvatar(w http.ResponseWriter, r *http.Request, path string) {
+func (api *api) serveProfileAvatar(w http.ResponseWriter, r *http.Request, logger log.Logger) {
 	switch r.Method {
 	case "GET":
 		// Retrieves the local user's profile and redirect to the immutable URL

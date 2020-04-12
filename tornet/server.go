@@ -25,6 +25,8 @@ type ServerConfig struct {
 	Address  SecretAddress  // Address private key to listen through
 	Identity SecretIdentity // Identity private key to encrypt traffic with
 	PeerSet  *PeerSet       // Connection de-duplicator and handler
+
+	Logger log.Logger // Logger to allow injecting pre-networking context
 }
 
 // Server is a network entity of a decentralized overlay network fully deployed
@@ -53,7 +55,11 @@ func NewServer(config ServerConfig) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	server.logger = log.New("onion", onion.Addr().String())
+	logger := config.Logger
+	if logger == nil {
+		logger = log.Root()
+	}
+	server.logger = logger.New("onion", onion.Addr().String())
 
 	// Wrap the onion service into a TLS stream as we don't much trust Tor to be
 	// the only encryption layer in the protocol. The listener configuration is

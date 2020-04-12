@@ -82,7 +82,7 @@ func (cs *CheckinSession) Wait(ctx context.Context) error {
 
 // handleV1CheckIn is the network handler for the v1 `event` protocol's checkin
 // phase.
-func (s *Server) handleV1CheckIn(logger log.Logger, uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder) {
+func (s *Server) handleV1CheckIn(uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder, logger log.Logger) error {
 	logger.Info("Participant checking in")
 
 	// The entire exchange is time limited, ensure failure if it's exceeded
@@ -92,23 +92,23 @@ func (s *Server) handleV1CheckIn(logger log.Logger, uid tornet.IdentityFingerpri
 	message := new(Envelope)
 	if err := dec.Decode(message); err != nil {
 		logger.Warn("Checkin retrieval failed", "err", err)
-		return
+		return err
 	}
 	if message.Checkin == nil {
 		logger.Warn("Checkin message missing")
-		return
+		return errors.New("checkin message missing")
 	}
 	if len(message.Checkin.Pseudonym) != ed25519.PublicKeySize {
 		logger.Warn("Invalid checkin identity length", "bytes", len(message.Checkin.Pseudonym))
-		return
+		return errors.New("invalid checkin identity length")
 	}
 	if len(message.Checkin.Signature) != ed25519.SignatureSize {
 		logger.Warn("Invalid checkin signature length", "bytes", len(message.Checkin.Signature))
-		return
+		return errors.New("invalid checkin signature length")
 	}
 	if !message.Checkin.Pseudonym.Verify(s.infos.Identity.Public(), message.Checkin.Signature) {
 		logger.Warn("Invalid checkin signature")
-		return
+		return errors.New("invalid checkin signature")
 	}
 	// Checkin completed, authorize the identity to connect for data exchange
 	uid = message.Checkin.Pseudonym.Fingerprint()
@@ -118,7 +118,7 @@ func (s *Server) handleV1CheckIn(logger log.Logger, uid tornet.IdentityFingerpri
 		// protocol violation (participants use ephemeral IDs), so make things
 		// fail loudly.
 		logger.Error("Failed to check user in", "id", uid, "err", err)
-		return
+		return err
 	}
 	// If there was no error, check the participant in internally too and notify
 	// the event host to persist the new status.
@@ -133,13 +133,14 @@ func (s *Server) handleV1CheckIn(logger log.Logger, uid tornet.IdentityFingerpri
 
 	if err := enc.Encode(&Envelope{CheckinAck: &CheckinAck{}}); err != nil {
 		logger.Warn("Failed to send checkin ack", "err", err)
-		return
+		return err
 	}
+	return nil
 }
 
 // handleV1CheckIn is the network handler for the v1 `event` protocol's checkin
 // phase.
-func (c *Client) handleV1CheckIn(logger log.Logger, uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder) {
+func (c *Client) handleV1CheckIn(uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder, logger log.Logger) {
 	logger.Info("Checking in to event", "pseudonym", c.infos.Pseudonym.Fingerprint())
 
 	// The entire exchange is time limited, ensure failure if it's exceeded

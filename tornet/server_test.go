@@ -8,6 +8,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/ethereum/go-ethereum/log"
 )
 
 // Tests that a client and a server can connect to each other and mutually
@@ -24,7 +26,7 @@ func TestServerConnectivity(t *testing.T) {
 	serverNotify := make(chan struct{}, 1)
 	serverPeers := NewPeerSet(PeerSetConfig{
 		Trusted: []PublicIdentity{clientId.Public()},
-		Handler: func(id IdentityFingerprint, conn net.Conn) {
+		Handler: func(id IdentityFingerprint, conn net.Conn, logger log.Logger) {
 			serverNotify <- struct{}{}
 		},
 	})
@@ -43,7 +45,7 @@ func TestServerConnectivity(t *testing.T) {
 	clientNotify := make(chan struct{}, 1)
 	clientPeers := NewPeerSet(PeerSetConfig{
 		Trusted: []PublicIdentity{serverId.Public()},
-		Handler: func(id IdentityFingerprint, conn net.Conn) {
+		Handler: func(id IdentityFingerprint, conn net.Conn, logger log.Logger) {
 			clientNotify <- struct{}{}
 		},
 	})

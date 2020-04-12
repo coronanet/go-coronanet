@@ -32,7 +32,7 @@ const (
 
 	// EventStatsRecheck is the time period after which to reconnect to an event
 	// to check for status updates.
-	EventStatsRecheck = time.Minute //6 * time.Hour
+	EventStatsRecheck = 6 * time.Hour
 
 	// EventMaintenancePeriod is the time an event will be kept alive after its
 	// end time. Networking will be disabled after this passes but the organizer

@@ -93,14 +93,14 @@ func (api *api) serveContactProfileInfo(w http.ResponseWriter, r *http.Request, 
 			http.Error(w, "Remote contact doesn't exist", http.StatusNotFound)
 		case nil:
 			w.Header().Add("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(&profileInfos{Name: contact.Name})
+			json.NewEncoder(w).Encode(&ProfileInfos{Name: contact.Name})
 		default:
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
 	case "PUT":
 		// Overrides the remote contact's profile
-		profile := new(profileInfos)
+		profile := new(ProfileInfos)
 		if err := json.NewDecoder(r.Body).Decode(profile); err != nil {
 			http.Error(w, "Provided profile is invalid: "+err.Error(), http.StatusBadRequest)
 			return

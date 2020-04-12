@@ -28,11 +28,11 @@ type Bridge struct {
 // NewBridge creates an instance of the ghost bridge, typed such as gomobile to
 // generate a Bridge constructor out of it.
 func NewBridge(datadir string) (*Bridge, error) {
-	backend, err := coronanet.NewBackend(datadir)
+	backend, err := coronanet.NewBackend(datadir, log.Root())
 	if err != nil {
 		return nil, err
 	}
-	bridge, err := ghostbridge.New(rest.New(backend))
+	bridge, err := ghostbridge.New(rest.New(backend, log.Root()))
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,7 @@ type GatewayStatus struct {
 // via  the mobile library. This is useful for showing native notifications without
 // screwing with HTTP and certificates.
 func (b *Bridge) GatewayStatus() (*GatewayStatus, error) {
-	enabled, connected, ingress, egress, err := b.backend.Status()
+	enabled, connected, ingress, egress, err := b.backend.GatewayStatus()
 	if err != nil {
 		return nil, err
 	}
@@ -71,12 +71,12 @@ func (b *Bridge) GatewayStatus() (*GatewayStatus, error) {
 // via  the mobile library. This is useful for showing native notifications without
 // screwing with HTTP and certificates.
 func (b *Bridge) EnableGateway() error {
-	return b.backend.Enable()
+	return b.backend.EnableGateway()
 }
 
 // DisableGateway is a pass-through method to allow directly calling Backend.Disable
 // via  the mobile library. This is useful for showing native notifications without
 // screwing with HTTP and certificates.
 func (b *Bridge) DisableGateway() error {
-	return b.backend.Disable()
+	return b.backend.DisableGateway()
 }

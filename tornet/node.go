@@ -22,6 +22,8 @@ type NodeConfig struct {
 	RingHandler RingHandler   // Handler to run for keyring changes
 	ConnHandler ConnHandler   // Handler to run for each peer
 	ConnTimeout time.Duration // Maximum idle time after which to disconnect
+
+	Logger log.Logger // Logger to allow injecting pre-networking context
 }
 
 // RingHandler is a callback for local or remote keyring changes.
@@ -45,8 +47,10 @@ type Node struct {
 	ringHandler RingHandler // System handler to run after keyring updates
 	connHandler ConnHandler // Application handler to run after address exchange
 
-	servers []*Server    // Remote connection listeners in the Tor network
-	lock    sync.RWMutex // Ensures the internals are not modified concurrently
+	servers []*Server // Remote connection listeners in the Tor network
+
+	logger log.Logger   // Contextual logger with optional embedded tags
+	lock   sync.RWMutex // Ensures the internals are not modified concurrently
 }
 
 // NewNode creates a new tornet P2P node which can initiate and accept remote
@@ -58,6 +62,10 @@ func NewNode(config NodeConfig) (*Node, error) {
 		keyring:     config.KeyRing,
 		ringHandler: config.RingHandler,
 		connHandler: config.ConnHandler,
+		logger:      config.Logger,
+	}
+	if node.logger == nil {
+		node.logger = log.Root()
 	}
 	// Create the peer set to deduplicate and handle connections
 	trusted := make([]PublicIdentity, 0, len(node.keyring.Trusted))
@@ -68,6 +76,7 @@ func NewNode(config NodeConfig) (*Node, error) {
 		Trusted: trusted,
 		Handler: node.handle,
 		Timeout: config.ConnTimeout,
+		Logger:  node.logger,
 	})
 	// For every currently maintained address, launch a listener server
 	for _, address := range node.keyring.Addresses {
@@ -76,6 +85,7 @@ func NewNode(config NodeConfig) (*Node, error) {
 			Address:  address,
 			Identity: node.keyring.Identity,
 			PeerSet:  node.peerset,
+			Logger:   node.logger,
 		})
 		if err != nil {
 			// If something failed, tear down any already created servers
@@ -133,8 +143,8 @@ func (n *Node) Dial(ctx context.Context, id IdentityFingerprint) (chan error, er
 // handle is responsible for doing a cryptographic address exchange between two
 // mutually trusted peers for server rotation. Afterwards, the connection will
 // be passed up to any application handler.
-func (n *Node) handle(id IdentityFingerprint, conn net.Conn) {
-	logger := log.New("peer", id)
+func (n *Node) handle(id IdentityFingerprint, conn net.Conn, logger log.Logger) {
+	logger = logger.New("peer", id)
 
 	// Connection has been mutually authenticated at the TLS level. Send over
 	// the address the local server prefers to be contacted on and the address
@@ -191,7 +201,7 @@ func (n *Node) handle(id IdentityFingerprint, conn net.Conn) {
 	logger.Debug("Rotating addresses exchanged", "local", preferredLocalAddress.Fingerprint(), "remote", requestedRemoteAddress.Fingerprint())
 
 	// All exchanges successful, let the application layer take over
-	n.connHandler(id, conn)
+	n.connHandler(id, conn, logger)
 }
 
 // handleNewAddress handles the remote announcement of a new tornet address.

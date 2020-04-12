@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/coronanet/go-coronanet/tornet"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 // testHost is a mock host to test interacting with a single hosted event.
@@ -81,7 +82,7 @@ func TestCheckin(t *testing.T) {
 		guest   = newTestGuest()
 	)
 	// Create an event server to check into
-	server, err := CreateServer(host, gateway, "barbecue", [32]byte{3, 1, 4})
+	server, err := CreateServer(host, gateway, "barbecue", [32]byte{3, 1, 4}, log.Root())
 	if err != nil {
 		t.Fatalf("failed to create event server: %v", err)
 	}
@@ -95,7 +96,7 @@ func TestCheckin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create checkin session: %v", err)
 	}
-	client, err := CreateClient(guest, gateway, session.Identity, session.Address, session.Auth)
+	client, err := CreateClient(guest, gateway, session.Identity, session.Address, session.Auth, log.Root())
 	if err != nil {
 		t.Fatalf("failed to create event client: %v", err)
 	}
@@ -141,7 +142,7 @@ func TestDuplicateCheckin(t *testing.T) {
 		guest   = newTestGuest()
 	)
 	// Create an event server to check into
-	server, err := CreateServer(host, gateway, "barbecue", [32]byte{3, 1, 4})
+	server, err := CreateServer(host, gateway, "barbecue", [32]byte{3, 1, 4}, log.Root())
 	if err != nil {
 		t.Fatalf("failed to create event server: %v", err)
 	}
@@ -155,7 +156,7 @@ func TestDuplicateCheckin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create checkin session: %v", err)
 	}
-	client, err := CreateClient(guest, gateway, session.Identity, session.Address, session.Auth)
+	client, err := CreateClient(guest, gateway, session.Identity, session.Address, session.Auth, log.Root())
 	if err != nil {
 		t.Fatalf("failed to create event client: %v", err)
 	}
@@ -171,7 +172,7 @@ func TestDuplicateCheckin(t *testing.T) {
 	<-guest.banner
 
 	// Attempt to connect with a malicious guest reusing the same auth credentials
-	if _, err := CreateClient(newTestGuest(), gateway, session.Identity, session.Address, session.Auth); err == nil {
+	if _, err := CreateClient(newTestGuest(), gateway, session.Identity, session.Address, session.Auth, log.Root()); err == nil {
 		t.Fatalf("duplicate checkin permitted")
 	}
 }
@@ -186,7 +187,7 @@ func TestSubsequentCheckin(t *testing.T) {
 		host    = newTestHost()
 	)
 	// Create an event server to check into
-	server, err := CreateServer(host, gateway, "barbecue", [32]byte{3, 1, 4})
+	server, err := CreateServer(host, gateway, "barbecue", [32]byte{3, 1, 4}, log.Root())
 	if err != nil {
 		t.Fatalf("failed to create event server: %v", err)
 	}
@@ -201,7 +202,7 @@ func TestSubsequentCheckin(t *testing.T) {
 		t.Fatalf("failed to create first checkin session: %v", err)
 	}
 	firstGuest := newTestGuest()
-	firstClient, err := CreateClient(firstGuest, gateway, session.Identity, session.Address, session.Auth)
+	firstClient, err := CreateClient(firstGuest, gateway, session.Identity, session.Address, session.Auth, log.Root())
 	if err != nil {
 		t.Fatalf("failed to create first event client: %v", err)
 	}
@@ -222,7 +223,7 @@ func TestSubsequentCheckin(t *testing.T) {
 		t.Fatalf("failed to create second checkin session: %v", err)
 	}
 	secondGuest := newTestGuest()
-	secondClient, err := CreateClient(secondGuest, gateway, session.Identity, session.Address, session.Auth)
+	secondClient, err := CreateClient(secondGuest, gateway, session.Identity, session.Address, session.Auth, log.Root())
 	if err != nil {
 		t.Fatalf("failed to create second event client: %v", err)
 	}
@@ -247,7 +248,7 @@ func TestConcurrentCheckin(t *testing.T) {
 		host    = newTestHost()
 	)
 	// Create an event server to check into
-	server, err := CreateServer(host, gateway, "barbecue", [32]byte{3, 1, 4})
+	server, err := CreateServer(host, gateway, "barbecue", [32]byte{3, 1, 4}, log.Root())
 	if err != nil {
 		t.Fatalf("failed to create event server: %v", err)
 	}
@@ -270,7 +271,7 @@ func TestConcurrentCheckin(t *testing.T) {
 	for _, session := range []*CheckinSession{firstSession, secondSession} {
 		go func(session *CheckinSession) {
 			guest := newTestGuest()
-			client, err := CreateClient(guest, gateway, session.Identity, session.Address, session.Auth)
+			client, err := CreateClient(guest, gateway, session.Identity, session.Address, session.Auth, log.Root())
 			if err != nil {
 				errc <- err
 			}
@@ -301,7 +302,7 @@ func TestPostTerminationCheckin(t *testing.T) {
 
 	// Create an event server to check into, retrieve it's checkin credentials and
 	// terminate it.
-	server, err := CreateServer(newTestHost(), gateway, "barbecue", [32]byte{3, 1, 4})
+	server, err := CreateServer(newTestHost(), gateway, "barbecue", [32]byte{3, 1, 4}, log.Root())
 	if err != nil {
 		t.Fatalf("failed to create event server: %v", err)
 	}
@@ -312,14 +313,14 @@ func TestPostTerminationCheckin(t *testing.T) {
 	server.Terminate()
 
 	// Attempt to check in with the old credentials and ensure it fails
-	if _, err := CreateClient(newTestGuest(), gateway, session.Identity, session.Address, session.Auth); err == nil {
+	if _, err := CreateClient(newTestGuest(), gateway, session.Identity, session.Address, session.Auth, log.Root()); err == nil {
 		t.Fatalf("post-termination checkin permitted")
 	}
 	// Restart the server to ensure a reboot doesn't re-enable checkin
 	infos := server.Infos()
 	server.Close()
 
-	server, err = RecreateServer(newTestHost(), gateway, infos)
+	server, err = RecreateServer(newTestHost(), gateway, infos, log.Root())
 	if err != nil {
 		t.Fatalf("failed to recreate event server: %v", err)
 	}

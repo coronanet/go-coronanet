@@ -22,15 +22,15 @@ type HandlerConfig struct {
 }
 
 // Handler is a callback to give control after a successful handshake.
-type Handler func(logger log.Logger, uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder)
+type Handler func(uid tornet.IdentityFingerprint, conn net.Conn, enc *gob.Encoder, dec *gob.Decoder, logger log.Logger)
 
 // MakeHandler creates a protocol handler based on the specified handshake and
 // callback configurations. It's mostly sugar coating to avoid having to redo
 // the same boilerplate in every protocol separately.
 func MakeHandler(config HandlerConfig) tornet.ConnHandler {
-	return func(uid tornet.IdentityFingerprint, conn net.Conn) {
+	return func(uid tornet.IdentityFingerprint, conn net.Conn, logger log.Logger) {
 		// Create a logger to track what's going on
-		logger := log.New("proto", config.Protocol, "peer", uid)
+		logger = logger.New("proto", config.Protocol, "peer", uid)
 		logger.Info("Remote peer connected")
 
 		// Create the gob encoder and decoder
@@ -51,7 +51,7 @@ func MakeHandler(config HandlerConfig) tornet.ConnHandler {
 		}
 		// Common protocol version negotiated, start up the actual message handler
 		logger.Debug("Negotiated protocol version", "version", ver)
-		config.Handlers[ver](logger, uid, conn, enc, dec)
+		config.Handlers[ver](uid, conn, enc, dec, logger)
 	}
 }
 

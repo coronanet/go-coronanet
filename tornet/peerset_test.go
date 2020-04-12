@@ -8,6 +8,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/ethereum/go-ethereum/log"
 )
 
 // Tests that new remote identities can be injected into a peer set to accept new
@@ -22,7 +24,7 @@ func TestPeerSetTrustManagement(t *testing.T) {
 	)
 	// Create a server that does not trust the client
 	serverPeers := NewPeerSet(PeerSetConfig{
-		Handler: func(id IdentityFingerprint, conn net.Conn) {},
+		Handler: func(id IdentityFingerprint, conn net.Conn, logger log.Logger) {},
 	})
 	server, err := NewServer(ServerConfig{
 		Gateway:  gateway,
@@ -39,7 +41,7 @@ func TestPeerSetTrustManagement(t *testing.T) {
 	clientNotify := make(chan struct{}, 1)
 	clientPeers := NewPeerSet(PeerSetConfig{
 		Trusted: []PublicIdentity{serverId.Public()},
-		Handler: func(id IdentityFingerprint, conn net.Conn) {
+		Handler: func(id IdentityFingerprint, conn net.Conn, logger log.Logger) {
 			clientNotify <- struct{}{}
 		},
 	})

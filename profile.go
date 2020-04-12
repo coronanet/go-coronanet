@@ -9,7 +9,6 @@ import (
 
 	"github.com/coronanet/go-coronanet/protocols/corona"
 	"github.com/coronanet/go-coronanet/tornet"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
@@ -36,7 +35,7 @@ type profile struct {
 // CreateProfile generates a new cryptographic identity for the local user and
 // injects it into the system.
 func (b *Backend) CreateProfile() error {
-	log.Info("Creating new profile")
+	b.logger.Debug("Profile creation requested")
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -46,6 +45,8 @@ func (b *Backend) CreateProfile() error {
 		return ErrProfileExists
 	}
 	// Generate a new profile and upload it
+	b.logger.Info("Creating new local profile")
+
 	keyring, err := tornet.GenerateKeyRing()
 	if err != nil {
 		return err
@@ -63,7 +64,7 @@ func (b *Backend) CreateProfile() error {
 // DeleteProfile wipes the entire database of everything. It's unforgiving, no
 // backups, no restore, the data is gone!
 func (b *Backend) DeleteProfile() error {
-	log.Info("Deleting profile")
+	b.logger.Info("Deleting profile")
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -106,7 +107,7 @@ func (b *Backend) updateKeyring(keyring tornet.SecretKeyRing) {
 	// contact addition/removal.The latter already holds the write lock whereas the
 	// former does not. TODO(karalabe): Would be nice to fix this.
 	go func() {
-		log.Info("Updating tornet keyring", "addresses", len(keyring.Addresses), "contacts", len(keyring.Trusted))
+		b.logger.Info("Updating tornet keyring", "addresses", len(keyring.Addresses), "contacts", len(keyring.Trusted))
 
 		b.lock.Lock()
 		defer b.lock.Unlock()
@@ -131,7 +132,7 @@ func (b *Backend) updateKeyring(keyring tornet.SecretKeyRing) {
 
 // UpdateProfile changes the profile information of an existing local user.
 func (b *Backend) UpdateProfile(name string) error {
-	log.Info("Updating profile infos", "name", name)
+	b.logger.Debug("Profile update requested", "name", name)
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -142,9 +143,11 @@ func (b *Backend) UpdateProfile(name string) error {
 		return err
 	}
 	if prof.Name == name {
+		b.logger.Debug("Skipping noop profile update")
 		return nil
 	}
 	// Name changed, update and serialize back to disk
+	b.logger.Info("Updating local profile name", "old", prof.Name, "new", name)
 	prof.Name = name
 
 	blob, err := json.Marshal(prof)
@@ -166,7 +169,7 @@ func (b *Backend) UpdateProfile(name string) error {
 
 // UploadProfilePicture uploads a new profile picture for the user.
 func (b *Backend) UploadProfilePicture(data []byte) error {
-	log.Info("Uploading profile picture")
+	b.logger.Info("Uploading profile picture")
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -211,7 +214,7 @@ func (b *Backend) UploadProfilePicture(data []byte) error {
 
 // DeleteProfilePicture deletes the existing profile picture of the user.
 func (b *Backend) DeleteProfilePicture() error {
-	log.Info("Deleting profile picture")
+	b.logger.Info("Deleting profile picture")
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
