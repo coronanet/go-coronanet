@@ -28,11 +28,11 @@ type Bridge struct {
 // NewBridge creates an instance of the ghost bridge, typed such as gomobile to
 // generate a Bridge constructor out of it.
 func NewBridge(datadir string) (*Bridge, error) {
-	backend, err := coronanet.NewBackend(datadir)
+	backend, err := coronanet.NewBackend(datadir, log.Root())
 	if err != nil {
 		return nil, err
 	}
-	bridge, err := ghostbridge.New(rest.New("", backend))
+	bridge, err := ghostbridge.New(rest.New(backend, log.Root()))
 	if err != nil {
 		return nil, err
 	}

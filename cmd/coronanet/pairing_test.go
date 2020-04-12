@@ -61,4 +61,15 @@ func TestPairingLifecycle(t *testing.T) {
 	if _, err := alice.WaitPairing(); err == nil {
 		t.Fatalf("manged to wait on finished pairing")
 	}
+	// Repairing with the same contacts should fail
+	secret, err = alice.InitPairing()
+	if err != nil {
+		t.Fatalf("failed to initialize pairing: %v", err)
+	}
+	if _, err := bob.JoinPairing(secret); err == nil {
+		t.Fatalf("managed to pair with already paired contact")
+	}
+	if _, err := alice.WaitPairing(); err == nil {
+		t.Fatalf("managed to pair with already paired contact")
+	}
 }
