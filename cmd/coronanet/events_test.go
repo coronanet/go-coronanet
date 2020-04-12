@@ -12,6 +12,8 @@ import (
 
 // Tests that events can be created, updated and terminated.
 func TestEventLifecycle(t *testing.T) {
+	t.Parallel()
+
 	// Create an event organizer and check that events cannot be hosted without a profile
 	alice, _ := newTestNode("", "--verbosity", "5")
 	defer alice.close()
@@ -64,6 +66,8 @@ func TestEventLifecycle(t *testing.T) {
 
 // Tests the checkin mechanism of the event protocol.
 func TestEventCheckin(t *testing.T) {
+	t.Parallel()
+
 	// Create an event and check that checkin is disallowed without networking
 	alice, _ := newTestNode("", "--verbosity", "5", "--hostname", "alice")
 	defer alice.close()

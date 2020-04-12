@@ -14,6 +14,8 @@ import (
 // Tests basic lifecycle operations around the local user account: creation,
 // updating, deletion and various combinations and sequences of these.
 func TestProfileLifecycle(t *testing.T) {
+	t.Parallel()
+
 	alice, _ := newTestNode("", "--verbosity", "5")
 	defer alice.close()
 
@@ -78,6 +80,8 @@ func TestProfileLifecycle(t *testing.T) {
 
 // Tests that a previously create profile can be reloaded on reboot.
 func TestProfileReloading(t *testing.T) {
+	t.Parallel()
+
 	// Create a persistent datadir managed by the test
 	datadir, err := ioutil.TempDir("", "")
 	if err != nil {

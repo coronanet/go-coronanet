@@ -11,6 +11,8 @@ import (
 
 // Tests the basic operation of a pairing session.
 func TestPairingLifecycle(t *testing.T) {
+	t.Parallel()
+
 	// Create a pairing initiator and ensure both profile and networking is required
 	alice, _ := newTestNode("", "--verbosity", "5", "--hostname", "alice")
 	defer alice.close()

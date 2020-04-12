@@ -98,11 +98,3 @@ func (t *testNode) close() {
 		os.RemoveAll(t.tempdir)
 	}
 }
-
-func TestRun(t *testing.T) {
-	testNode, err := newTestNode("")
-	if err != nil {
-		t.Fatalf("failed to run coronanet binary: %v", err)
-	}
-	testNode.close()
-}
