@@ -17,6 +17,14 @@ Practical details:
 
 ![Event Example](images/events_example.png)
 
+## Information cascade
+
+As mentioned above, the main purpose of a single event is to link multiple people together *at a given point in time* (e.g. Alice, Bob and Eve participate in the same barbecue). Participants themselves, however, link multiple events together *across time* (e.g. Alice participated in both the barbecue and a team building). This results in events and people in the system forming a unified graph. This is an immensely powerful construct, as every time a person posts a status update, the cross-people links (through events) and cross-event links (through people) produce an information cascade across the entire network.
+
+![Event Cascade](images/events_cascade.png)
+
+E.g. In the example scenario above, a single `positive` infection update from Alice triggers Bob and Eve to switch over to `suspected` via the `Barbecue` event; who in their own turn cascade the `suspected` status over to Frank via the `Theater` event.
+
 ## Technical details
 
 To create an event, an organizer generates a new random cryptographic identity and address, which together will form a `tornet` server. The organizer will run this server for `14 days` after the event ends.
