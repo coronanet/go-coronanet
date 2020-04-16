@@ -17,26 +17,26 @@ documentclass: scrartcl
 
 This paper presents a novel decentralized and anonymized social network, the *Corona Network*, designed for Coronavirus contact tracing and infection inference; without a central operator and without the possibility of user tracking or data mining.
 
-The *Corona Network* is similar in purpose to Singapore's TraceTogether[^1] app, Israel's HaMagen[^2] app, or Google and Apple's contact tracing system[^3], namely to allow users to detect if might have come into contact with an infected person. Opposed to these alternatives, the *Corona Network* does not have a central operator and does not permit users to be tracked.
+The *Corona Network* is similar in purpose to Singapore's TraceTogether[^1] app, Israel's HaMagen[^2] app, or Google and Apple's contact tracing system[^3], namely to allow users to detect if they might have come into contact with an infected person. Opposed to these, the *Corona Network* does not have a central operator and does not permit user tracking.
 
 [^1]: https://www.tracetogether.gov.sg/
 [^2]: https://play.google.com/store/apps/details?id=com.hamagen&hl=en
 [^3]: https://blog.google/inside-google/company-announcements/apple-and-google-partner-covid-19-contact-tracing-technology
 
-All alternative systems mentioned above employ Bluetooth beacons, through which mobile devices advertise their presence to one another. These announcements are tiny encrypted identities that devices collect throughout the day and share with authorities when someone tests positive. The only way for the central operator to notify potential contacts, is for every user of the system to constantly *phone home* to a centrally operated server, which raises serious privacy concerns.
+All alternative systems mentioned above employ Bluetooth beacons, through which mobile devices advertise their presence to one another. These announcements are tiny encrypted identities that devices collect throughout the day and share with authorities when someone tests positive. The only way for the central operator to notify potential contacts, is for every user of the system to constantly *phone home* to a centrally operated server, which raises privacy concerns.
 
-Even more serious issues arise with designs around Bluetooth, because the cryptographic announcements are only rotated every so often, but they can be received from quite a significant distance. By scattering bluetooth listeners across a wide area (block, city, state), it becomes possible for ***anyone to track the movement*** of users broadcasting these beacons. With a bit of statistical analysis, a determined attacker should be able to easily enough match a newly appeared beacon to one that disappeared around the same place and time.
+Even more serious issues arise with designs around Bluetooth, because the cryptographic announcements are only rotated every so often, but they can be received from quite a significant distance. By scattering bluetooth listeners across a wide area (block, city, state), it becomes possible for ***anyone to track the movement*** of users broadcasting these beacons. With a bit of statistical analysis, a determined attacker should be able to match a newly appeared beacon to ones that disappeared around the same place/time.
 
 A last serious design flaw with Bluetooth technologies that favor Google heavily, is that Bluetooth beacons require *Location Services* to be enabled on Android devices. By enabling it however, Google services running on the mobile devices have access to full GPS coordinates, which Android collects and shares with Google by default. ***The only way to allow any app on the device to listen for Bluetooth announcements, is to also grant Google services GPS access.*** As such, any solution using Bluetooth scans is trackable by Google.
 
-Opposed to all the above systems, the *Corona Network* does not rely on Bluetooth technologies, specifically due to their weak privacy guarantees. This does mean that the work presented in this paper cannot automatically link people together, but that in our opinion is a feature, not a bug in the grand scheme of things. By sacrificing automatic contact detection in favor of a user-initiated check-in mechanism, we created a system that does not rely on any notion of location whatsoever, making it impossible for third parties to track the users' whereabouts.
+Opposed to all the above systems, the *Corona Network* does not rely on Bluetooth technologies, specifically due to their weak privacy guarantees. This does mean, that the work presented in this paper cannot automatically link people together, but this in our opinion is a feature, not a bug in the grand scheme of things. By sacrificing automatic contact detection in favor of a user-initiated check-in mechanism, we created a system that does not rely on any notion of location whatsoever, making it impossible for third parties to track the users' whereabouts.
 
 In the first half of this paper we will present the general construction of the social network, and we will explain its high level operation and how it achieves its promised privacy features. The second half of the paper dives a bit deeper into the cryptography and networking mechanisms that underpins the system.
 
 This paper does not attempt to present protocol specifications and explain implementation details, but the reader is welcome to check the technical specs and source code at https://github.com/coronanet/go-coronanet. Please note however:
 
 - The system is a work in progress, specs may be lacking, features missing.
-- The source code is available for verification, but is not licensed to reuse.
+- The source code is available for verification, but is not licensed for reuse.
 
 # Social network
 
